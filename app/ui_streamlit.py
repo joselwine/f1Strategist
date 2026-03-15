@@ -83,7 +83,7 @@ with st.sidebar:
     debug_mode = st.checkbox("Show debug pit-window data", value=False)
 
 # -------- Tabs --------
-tab1, tab2, tab3 = st.tabs(["🧠 Explain real pit", "🔁 What-if sim", "🟢 Recommend"])
+tab1, tab2, tab3 = st.tabs(["Explain real pit", "What-if sim", "Recommend"])
 
 def show_quality_banner(payload: dict):
     q = payload.get("quality") or {}
@@ -197,7 +197,7 @@ with tab2:
                 st.write("No lap table available.")
 
 with tab3:
-    st.subheader("🟢 Pit recommendation")
+    st.subheader("Pit recommendation")
     current_lap = st.number_input("Current lap", min_value=1, max_value=200, value=18)
 
     if st.button("Recommend pit lap", type="primary", use_container_width=True):
@@ -247,7 +247,7 @@ with tab3:
                 st.write("No projection data available.")
 
 with tab1:
-    st.subheader("🧠 Explain a real pit stop")
+    st.subheader("Explain a real pit stop")
 
     if st.button("Explain pit", type="primary", use_container_width=True):
         out = svc.explain_real_pit(

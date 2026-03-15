@@ -1105,7 +1105,7 @@ class StrategyService:
         # VIEWER SUMMARY (short)
         # --------------------------
         viewer_lines = [
-            f"🏁 [{race_id}] {driver} pitted on lap {pit_lap}.",
+            f"[{race_id}] {driver} pitted on lap {pit_lap}.",
             f"Over the next {horizon} laps (to lap {end_lap_fixed}), the model estimates:",
             f"- Actual stop (lap {pit_lap}): reference = 0.000s",
             f"- Best nearby option (±{window}): lap {best_vs_actual['pit_lap']} with Δ={best_vs_actual['delta_vs_actual_s']:+.3f}s vs actual.",
@@ -1399,7 +1399,7 @@ class StrategyService:
                 )
 
         viewer_lines = [
-            f"🟢 Recommendation: pit on lap {best['pit_lap']} ({race_id}, {driver}).",
+            f"Recommendation: pit on lap {best['pit_lap']} ({race_id}, {driver}).",
             f"Estimated net effect over the comparison window: {best['delta_end_s']:+.3f}s versus the current strategy.",
             f"Expected position: P{best['whatif_pos_end']} (baseline P{best['base_pos_end']}).",
         ]
