@@ -1,0 +1,11 @@
+LapNumberNorm
+LapsSinceLastPit
+TyreLife
+Stint
+StopsSoFar
+Position
+lap_avg_3
+TyreWearFrac
+Compound
+Team
+TrackStatus
