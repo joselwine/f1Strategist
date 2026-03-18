@@ -1107,6 +1107,20 @@ class StrategyService:
         avg_pit_loss = self._estimate_track_pit_loss(race_id)
         actual_reasons = actual.get("reasons_sim") or actual.get("reasons") or {}
         best_reasons = best.get("reasons_sim") or best.get("reasons") or {}
+        actual_df = actual.get("df")
+        ahead_after_stop = None
+        gap_ahead_after_stop = None
+
+        if actual_df is not None and len(actual_df):
+            try:
+                first_row = actual_df.iloc[0]
+                ahead_after_stop = first_row.get("AheadDriver")
+                gap_ahead_after_stop = first_row.get("GapAhead_s")
+
+                actual_reasons["ahead_driver_after_stop"] = ahead_after_stop
+                actual_reasons["gap_ahead_after_stop_s"] = gap_ahead_after_stop
+            except Exception:
+                pass
         horizon = int(horizon_laps or self.config.horizon_laps)
         end_lap_fixed = int(pit_lap + horizon)
         ranked = self._local_sensitivity_rank(snapshot, top_k=5)
@@ -1217,6 +1231,22 @@ class StrategyService:
         else:
             short_lines.append("This looks like a standard strategic stop.")
 
+        rejoin_pos = actual_reasons.get("rejoin_pos")
+        ahead_driver = actual_reasons.get("ahead_driver_after_stop")
+        gap_ahead = actual_reasons.get("gap_ahead_after_stop_s")
+
+        if rejoin_pos is not None:
+            short_lines.append(f"He was projected to rejoin around P{int(rejoin_pos)}.")
+
+        if ahead_driver and gap_ahead is not None:
+            short_lines.append(
+                f"After the stop, the car ahead was {ahead_driver}, about {float(gap_ahead):.2f}s ahead."
+            )
+        elif gap_ahead is not None:
+            short_lines.append(
+                f"After the stop, the gap to the car ahead was about {float(gap_ahead):.2f}s."
+            )
+
         if best_vs_actual is not None and int(best_vs_actual["pit_lap"]) != int(pit_lap):
             delta = float(best_vs_actual.get("delta_vs_actual_s", 0.0))
             if delta < 0:
@@ -1239,11 +1269,10 @@ class StrategyService:
         # --------------------------
         detail_lines = [
             f"Real pit explanation: [{race_id}] {driver} pitted on lap {pit_lap}.",
-            f"- Compared laps: {candidates[0]}–{candidates[-1]} (±{window}).",
-            f"- Fixed comparison end: lap {end_lap_fixed} (pit lap + {horizon}).",
-            f"- Best in window: lap {best['pit_lap']} (Δ_fixed={best['delta_end_fixed_s']:+.3f}s).",
-            f"- Actual: lap {pit_lap} (Δ_fixed={actual['delta_end_fixed_s']:+.3f}s).",
-            f"- Actual − best = {diff_vs_best:+.3f}s.",
+            f"- Compared laps: {candidates[0]} to {candidates[-1]} (a ±{window} lap window).",
+            f"- All options are compared at lap {end_lap_fixed}, which is {horizon} laps after the actual stop.",
+            f"- The best nearby alternative option was lap {best['pit_lap']}",
+            f"- The actual stop was {abs(float(diff_vs_best)):+.3f}s {'worse' if float(diff_vs_best) > 0 else 'better'} than the best nearby option.",
         ]
 
         if actual_reasons:
