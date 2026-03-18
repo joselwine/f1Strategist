@@ -156,7 +156,7 @@ def ensure_name(state: ChatState) -> None:
         if not name:
             name = "friend"
         state.user_name = name
-        print(f"Nice to meet you, {state.user_name}! 🏎️\n")
+        print(f"Nice to meet you, {state.user_name}! \n")
 
 def require_context(state: ChatState) -> List[str]:
     missing = []

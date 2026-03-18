@@ -876,14 +876,26 @@ class StrategyService:
         payload["quality"] = quality
         reasons = payload["reasons_sim"] or {}   # wherever you store it
         viewer_lines = [
-            f"🏎️ What-if: {driver} pits on lap {pit_lap} in {race_id}.",
-            f"Estimated impact over next {horizon} laps: {delta_end:+.3f}s vs baseline.",
-            f"Position: P{what_pos_end} (baseline P{base_pos_end}).",
+            f"What-if: {driver} pits on lap {pit_lap} in {race_id}.",
+            f"Time impact over next {horizon} laps: {delta_end:+.3f}s.",
+            f"Expected position at end of window: P{what_pos_end} (current baseline P{base_pos_end}).",
         ]
         
-        rtext = self._reasons_to_viewer_text(reasons)
-        if rtext:
-            viewer_lines.append(rtext)
+        if reasons:
+            rejoin_pos = reasons.get("rejoin_pos")
+            total_traffic = reasons.get("total_traffic_penalty_s", 0.0)
+            worst_lap = reasons.get("worst_penalty_lap")
+            worst_penalty = reasons.get("worst_penalty_s")
+            min_gap = reasons.get("min_gap_ahead_s")
+
+            if rejoin_pos is not None:
+                viewer_lines.append(f"- Likely rejoin position: P{int(rejoin_pos)}.")
+            if total_traffic is not None:
+                viewer_lines.append(f"- Estimated total traffic cost: {float(total_traffic):.2f}s.")
+            if worst_lap is not None and worst_penalty is not None:
+                viewer_lines.append(f"- Biggest traffic hit: lap {int(worst_lap)} (+{float(worst_penalty):.2f}s).")
+            if min_gap is not None:
+                viewer_lines.append(f"- Tightest gap ahead: ~{float(min_gap):.2f}s.")
 
         payload["summary_viewer"] = "\n".join(viewer_lines)
 
@@ -1105,28 +1117,37 @@ class StrategyService:
         # VIEWER SUMMARY (short)
         # --------------------------
         viewer_lines = [
-            f"[{race_id}] {driver} pitted on lap {pit_lap}.",
-            f"Over the next {horizon} laps (to lap {end_lap_fixed}), the model estimates:",
-            f"- Actual stop (lap {pit_lap}): reference = 0.000s",
-            f"- Best nearby option (±{window}): lap {best_vs_actual['pit_lap']} with Δ={best_vs_actual['delta_vs_actual_s']:+.3f}s vs actual.",
-            f"- That makes the actual stop {abs(best_vs_actual['delta_vs_actual_s']):.3f}s {'slower' if best_vs_actual['delta_vs_actual_s'] < 0 else 'faster'} than the best nearby option."
-            f"- Average pit time loss at this circuit: {avg_pit_loss:.1f}s"
-            f"→ Difference: {diff_vs_best:+.3f}s (positive = the actual stop was worse than the best nearby).",
+            f"[{driver} pitted on lap {pit_lap} in {race_id}.",
         ]
 
-        if best_vs_actual is not None and int(best_vs_actual["pit_lap"]) != int(pit_lap):
-            viewer_lines.append(
-                f"Best nearby option (±{window}): lap {best_vs_actual['pit_lap']} with Δ={best_vs_actual['delta_vs_actual_s']:+.3f}s vs actual."
-            )
+        pos = snapshot.get("Position") if snapshot else None
+        if pos is not None:
+            try:
+                viewer_lines.append(f"- Running position at the time: P{int(pos)}.")
+            except Exception:
+                pass
+
+        if stop_ctx.get("weather_stop"):
+            viewer_lines.append("- This looks like a weather-driven stop.")
+        elif stop_ctx.get("short_gap_stop"):
+            laps = stop_ctx.get("laps_since_prev_stop")
+            viewer_lines.append(f"- This was an unusual short-gap stop, {laps} laps after the previous stop.")
+        else:
+            viewer_lines.append("- This looks like a standard strategic stop.")
 
         if best_vs_actual is not None and int(best_vs_actual["pit_lap"]) != int(pit_lap):
-            if float(best_vs_actual["delta_vs_actual_s"]) < 0:
+            delta = float(best_vs_actual.get("delta_vs_actual_s", 0.0))
+            if delta < 0:
                 viewer_lines.append(
-                    f"That makes the actual stop {abs(float(best_vs_actual['delta_vs_actual_s'])):.3f}s slower than the best nearby option."
+                    f"- Best nearby alternative: lap {best_vs_actual['pit_lap']} ({abs(delta):.2f}s better than the actual stop)."
                 )
-            elif float(best_vs_actual["delta_vs_actual_s"]) > 0:
+            elif delta > 0:
                 viewer_lines.append(
-                    f"That makes the actual stop {abs(float(best_vs_actual['delta_vs_actual_s'])):.3f}s faster than the best nearby option."
+                    f"- Best nearby alternative: lap {best_vs_actual['pit_lap']} ({abs(delta):.2f}s worse than the actual stop)."
+                )
+            else:
+                viewer_lines.append(
+                    f"- Best nearby alternative: lap {best_vs_actual['pit_lap']} (effectively equal to the actual stop)."
                 )
 
         if ctx_lines:
@@ -1399,20 +1420,38 @@ class StrategyService:
                 )
 
         viewer_lines = [
-            f"Recommendation: pit on lap {best['pit_lap']} ({race_id}, {driver}).",
-            f"Estimated net effect over the comparison window: {best['delta_end_s']:+.3f}s versus the current strategy.",
-            f"Expected position: P{best['whatif_pos_end']} (baseline P{best['base_pos_end']}).",
+            f"Recommended pit lap: {best['pit_lap']} for {driver} in {race_id}).",
+            f"- Estimated time impact over the comparison window: {best['delta_end_s']:+.3f}s.",
+            f"- Expected position: P{best['whatif_pos_end']} (baseline P{best['base_pos_end']}).",
         ]
-        if diff_vs_2nd is not None:
-            viewer_lines.append(
-                f"Margin vs next-best option (lap {second['pit_lap']}): {diff_vs_2nd:+.3f}s (negative = better)."
-            )
+
+        if diff_vs_2nd is not None and second is not None:
+            if diff_vs_2nd < 0:
+                viewer_lines.append(
+                    f"- Margin to next-best option: {abs(diff_vs_2nd):.2f}s better than lap {second['pit_lap']}."
+                )
+            elif diff_vs_2nd > 0:
+                viewer_lines.append(
+                    f"- Margin to next-best option: {abs(diff_vs_2nd):.2f}s worse than lap {second['pit_lap']}."
+                )
+            else:
+                viewer_lines.append(
+                    f"- Margin to next-best option: effectively equal to lap {second['pit_lap']}."
+                )
 
         # optional: bring in “why” (traffic/rejoin) from best sim reasons
         reasons = best.get("reasons_sim") or {}
-        rtext = self._reasons_to_viewer_text(reasons)
-        if rtext:
-            viewer_lines.append(rtext)
+        if reasons:
+            rejoin_pos = reasons.get("rejoin_pos")
+            total_traffic = reasons.get("total_traffic_penalty_s", 0.0)
+            min_gap = reasons.get("min_gap_ahead_s")
+
+            if rejoin_pos is not None:
+                viewer_lines.append(f"- Likely rejoin position: P{int(rejoin_pos)}.")
+            if total_traffic is not None:
+                viewer_lines.append(f"- Estimated traffic cost: {float(total_traffic):.2f}s.")
+            if min_gap is not None:
+                viewer_lines.append(f"- Tightest gap ahead: ~{float(min_gap):.2f}s.")
 
         payload = {
             "race_id": race_id,

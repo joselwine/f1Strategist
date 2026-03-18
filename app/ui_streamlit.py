@@ -66,7 +66,7 @@ def show_pit_debug(svc, race_id: str, driver: str, pit_lap: int):
     if pit_lap in sub["LapNumber_i"].values:
         around = sub[sub["LapNumber_i"].between(int(pit_lap)-2, int(pit_lap)+2)].copy()
 
-st.title("🏎️ F1 Pit Strategy Assistant")
+st.title("F1 Pit Strategy Assistant")
 st.caption("Explain real pit stops, run what-if simulations, and get pit recommendations.")
 
 # -------- Sidebar: Context --------
