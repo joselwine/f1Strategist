@@ -81,7 +81,15 @@ with st.sidebar:
     st.header("Context")
     race_display = st.selectbox("Race", display_races)
     race_id = display_race_map[race_display]
-    driver = st.text_input("Driver", value="VER", help="3-letter code or full name")
+    available_drivers = sorted(
+        svc.df_fe.loc[svc.df_fe["RaceId"] == race_id, "Driver"].dropna().unique()
+    )
+
+    default_driver_index = 0
+    if "VER" in available_drivers:
+        default_driver_index = available_drivers.index("VER")
+
+    driver = st.selectbox("Driver", available_drivers, index=default_driver_index)
     horizon = st.slider("Horizon (laps)", 5, 40, 20)
     st.divider()
 
