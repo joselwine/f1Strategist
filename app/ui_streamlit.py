@@ -16,6 +16,13 @@ def load_service():
     return StrategyService()
 
 svc = load_service()
+available_races = sorted(svc.df_fe["RaceId"].dropna().unique())
+
+def format_race_label(race_id: str) -> str:
+    return race_id.replace("SaoPaulo", "Brazil").replace("SãoPaulo", "Brazil")
+
+display_race_map = {format_race_label(r): r for r in available_races}
+display_races = sorted(display_race_map.keys(), reverse=True)
 
 import pandas as pd
 import streamlit as st
@@ -72,7 +79,8 @@ st.caption("Explain real pit stops, run what-if simulations, and get pit recomme
 # -------- Sidebar: Context --------
 with st.sidebar:
     st.header("Context")
-    race_id = st.text_input("Race", value="2025-Monaco", help="Example: 2025-Monaco")
+    race_display = st.selectbox("Race", display_races)
+    race_id = display_race_map[race_display]
     driver = st.text_input("Driver", value="VER", help="3-letter code or full name")
     horizon = st.slider("Horizon (laps)", 5, 40, 20)
     st.divider()

@@ -1272,7 +1272,7 @@ class StrategyService:
             f"- Compared laps: {candidates[0]} to {candidates[-1]} (a ±{window} lap window).",
             f"- All options are compared at lap {end_lap_fixed}, which is {horizon} laps after the actual stop.",
             f"- The best nearby alternative option was lap {best['pit_lap']}",
-            f"- The actual stop was {abs(float(diff_vs_best)):+.3f}s {'worse' if float(diff_vs_best) > 0 else 'better'} than the best nearby option.",
+            f"- The actual stop was {abs(float(diff_vs_best)):.3f}s {'worse' if float(diff_vs_best) > 0 else 'better'} than the best nearby option.",
         ]
 
         if actual_reasons:
