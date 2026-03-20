@@ -1285,7 +1285,7 @@ class StrategyService:
         if snapshot:
             detail_lines.append(f"- Snapshot (lap {snap_lap}) features: {snapshot}")
 
-        summary_detail = "\n".join(detail_lines)
+        summary_detail = "TEST BLOCK"
 
         # Choose default summary
         summary = summary_viewer if prefer == "viewer" else summary_detail
