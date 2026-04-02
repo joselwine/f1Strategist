@@ -181,7 +181,11 @@ with tab2:
     st.subheader("🔁 What-if simulation")
     run = st.button("Run what-if", type="primary", use_container_width=True)
     if run:
-        out = svc.simulate(race_id=race_id, driver=driver, pit_lap=int(pit_lap), horizon_laps=int(horizon))
+        try:
+            out = svc.simulate(race_id=race_id, driver=driver, pit_lap=int(pit_lap), horizon_laps=int(horizon))
+        except ValueError as e:
+            st.warning(str(e))
+            st.stop()
         show_quality_banner(out)
         show_confidence_badge(out)
 

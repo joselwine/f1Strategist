@@ -63,7 +63,7 @@ class StrategyService:
 
 
     # -----------------------------
-    # Loaders (you will tweak these)
+    # Loaders
     # -----------------------------
 
     def _load_df_fe(self) -> pd.DataFrame:
@@ -398,6 +398,32 @@ class StrategyService:
             "gap_ahead_s": None,
             "gap_behind_s": None,
         }
+    
+    def _has_enough_driver_data(self, race_id: str, driver: str) -> bool:
+        sub = self.df_fe[
+            (self.df_fe["RaceId"] == race_id) &
+            (self.df_fe["Driver"] == driver)
+        ].copy()
+
+        if sub.empty:
+            return False
+
+        # Require a sensible number of laps to treat the race as usable
+        laps = sub["LapNumber"].dropna().astype(int).unique().tolist() if "LapNumber" in sub.columns else []
+        if len(laps) < 10:
+            return False
+
+        # Check whether the driver got near the end of the race
+        max_lap_driver = max(laps) if laps else 0
+        race_sub = self.df_fe[self.df_fe["RaceId"] == race_id].copy()
+        race_laps = race_sub["LapNumber"].dropna().astype(int)
+        max_lap_race = int(race_laps.max()) if len(race_laps) else 0
+
+        if max_lap_race == 0:
+            return False
+
+        # If driver completed much less than the race distance, treat as non-finisher / unusable
+        return max_lap_driver >= max_lap_race - 2
     
     def _uo_lines(self, race_id: str, driver: str, pit_lap: int, k: int = 3):
         snap_lap = max(1, int(pit_lap) - 1)
@@ -826,6 +852,9 @@ class StrategyService:
         horizon_laps: Optional[int] = None,
         real_pit_reference_lap : Optional[int] = None,
     ) -> Dict[str, Any]:
+        
+        if not self._has_enough_driver_data(race_id, driver):
+            raise ValueError(f"{driver} did not finish the race, or there is not enough usable data for this race.")
         cfg = self.config
         horizon = horizon_laps if horizon_laps is not None else cfg.horizon_laps
 
@@ -1013,6 +1042,10 @@ class StrategyService:
         *,
         prefer: str = "viewer",   # "viewer" | "detail"
     ) -> Dict[str, Any]:
+        
+        if not self._has_enough_driver_data(race_id, driver):
+            raise ValueError(f"{driver} did not finish the race, or there is not enough usable data for this race.")
+
         pits = self.get_real_pit_laps(race_id, driver)
         if not pits:
             return {"summary": f"No recorded pit laps found for {driver} in {race_id}."}
@@ -1351,6 +1384,10 @@ class StrategyService:
         candidate_laps: List[int],
         horizon_laps: Optional[int] = None,
     ) -> Dict[str, Any]:
+        
+        if not self._has_enough_driver_data(race_id, driver):
+            raise ValueError(f"{driver} did not finish the race, or there is not enough usable data for this race.")
+
         """
         Basic recommendation: simulate each candidate lap and pick the best (lowest delta_end).
         You can later swap "best" objective to "best position" or "expected finish time" etc.
