@@ -333,14 +333,20 @@ with tab2:
             else:
                 delta_text = "No difference"
 
-        st.markdown("### Key Insights")
+        st.markdown("### 📊 Key Insights")
+
         sim_df = out.get("df")
         confidence = out.get("confidence", "High")
 
-        selected_pit_lap = pit_lap
+        selected_pit_lap = int(pit_lap)
+        baseline_pit_lap = out.get("real_pit_reference_lap", pit_lap)
+        lap_diff = selected_pit_lap - int(baseline_pit_lap) if baseline_pit_lap is not None else None
+
         final_delta = None
         final_pos = None
+        baseline_pos = None
         traffic_text = "Moderate"
+        traffic_compare = ""
 
         if sim_df is not None and len(sim_df):
             sim_df = sim_df.copy()
@@ -355,6 +361,12 @@ with tab2:
                 except Exception:
                     final_pos = None
 
+            if "BasePos" in final_row:
+                try:
+                    baseline_pos = int(final_row["BasePos"])
+                except Exception:
+                    baseline_pos = None
+
             if final_delta is not None:
                 if abs(final_delta) < 0.5:
                     traffic_text = "Low"
@@ -364,17 +376,32 @@ with tab2:
         delta_text = "N/A"
         if final_delta is not None:
             if final_delta < 0:
-                delta_text = f"{abs(final_delta):.1f}s gained"
+                delta_text = f"{abs(final_delta):.1f}s gained vs baseline"
             elif final_delta > 0:
-                delta_text = f"{abs(final_delta):.1f}s lost"
+                delta_text = f"{abs(final_delta):.1f}s lost vs baseline"
             else:
-                delta_text = "No difference"
+                delta_text = "No difference vs baseline"
+
+        lap_text = "N/A"
+        if lap_diff is not None:
+            if lap_diff > 0:
+                lap_text = f"{selected_pit_lap} ({lap_diff} laps later than baseline)"
+            elif lap_diff < 0:
+                lap_text = f"{selected_pit_lap} ({abs(lap_diff)} laps earlier than baseline)"
+            else:
+                lap_text = f"{selected_pit_lap} (same as baseline)"
+
+        pos_text = "N/A"
+        if final_pos is not None and baseline_pos is not None:
+            pos_text = f"P{final_pos} (baseline: P{baseline_pos})"
+        elif final_pos is not None:
+            pos_text = f"P{final_pos}"
 
         st.markdown(
             f"""
-        - **Selected pit lap:** {selected_pit_lap}
+        - **Selected pit lap:** {lap_text}
         - **Projected cumulative time difference:** {delta_text}
-        - **Projected position at end of window:** {"P" + str(final_pos) if final_pos is not None else "N/A"}
+        - **Projected position at end of window:** {pos_text}
         - **Traffic impact:** {traffic_text}
         - **Confidence:** {confidence}
         """
