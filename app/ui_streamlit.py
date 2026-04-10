@@ -285,7 +285,7 @@ def plot_recommend_sim(df: pd.DataFrame):
 
     st.plotly_chart(fig_pos, use_container_width=True)
     st.caption("This shows the projected running position if the driver pits on the recommended lap.")
-    
+
 with tab2:
     st.subheader("What-if simulation")
     run = st.button("Run what-if", type="primary", use_container_width=True)
@@ -334,25 +334,75 @@ with tab2:
                 delta_text = "No difference"
 
         st.markdown("### Key Insights")
+        sim_df = out.get("df")
+        confidence = out.get("confidence", "High")
+
+        selected_pit_lap = pit_lap
+        final_delta = None
+        final_pos = None
+        traffic_text = "Moderate"
+
+        if sim_df is not None and len(sim_df):
+            sim_df = sim_df.copy()
+            final_row = sim_df.iloc[-1]
+
+            if "DeltaCum_s" in final_row:
+                final_delta = float(final_row["DeltaCum_s"])
+
+            if "WhatIfPos" in final_row:
+                try:
+                    final_pos = int(final_row["WhatIfPos"])
+                except Exception:
+                    final_pos = None
+
+            if final_delta is not None:
+                if abs(final_delta) < 0.5:
+                    traffic_text = "Low"
+                elif abs(final_delta) > 2:
+                    traffic_text = "High"
+
+        delta_text = "N/A"
+        if final_delta is not None:
+            if final_delta < 0:
+                delta_text = f"{abs(final_delta):.1f}s gained"
+            elif final_delta > 0:
+                delta_text = f"{abs(final_delta):.1f}s lost"
+            else:
+                delta_text = "No difference"
+
         st.markdown(
             f"""
-        - **Best nearby pit lap:** {best_lap if best_lap is not None else "N/A"}
-        - **Estimated time difference:** {delta_text}
-        - **Expected finishing position after pit:** {"P" + str(best_pos) if best_pos is not None else "N/A"}
+        - **Selected pit lap:** {selected_pit_lap}
+        - **Projected cumulative time difference:** {delta_text}
+        - **Projected position at end of window:** {"P" + str(final_pos) if final_pos is not None else "N/A"}
         - **Traffic impact:** {traffic_text}
         - **Confidence:** {confidence}
         """
         )
+
         with st.expander("Why did the model say this?"):
             st.markdown(out.get("summary_detail", "No additional detail available."))
 
-        with st.expander("See ranked nearby alternatives"):
-            cf = out.get("counterfactuals")
-            if cf:
+        cf = out.get("counterfactuals")
+        if cf:
+            with st.expander("Nearby strategy comparison"):
                 import pandas as pd
-                st.dataframe(pd.DataFrame(cf), use_container_width=True)
-            else:
-                st.write("No nearby alternatives available.")
+
+                cf_df = pd.DataFrame(cf).rename(columns={
+                    "pit_lap": "Pit Lap",
+                    "delta_vs_actual_s": "Time Difference vs Actual (s)",
+                    "whatif_pos_end_s": "Expected Position After Pit",
+                    "label": "Interpretation"
+                })
+
+                if "Interpretation" in cf_df.columns:
+                    cf_df["Interpretation"] = cf_df["Interpretation"].replace({
+                        "Better than actual": "Faster (Time Gain)",
+                        "Actual stop": "Baseline",
+                        "Worse than actual": "Slower (Time Loss)"
+                    })
+
+                st.dataframe(cf_df, use_container_width=True)
 
         with st.expander("See graphs"):
             df = out.get("df")
