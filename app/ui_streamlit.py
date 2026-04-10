@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import sys
 from pathlib import Path
+import plotly.express as px
+import plotly.graph_objects as go
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -148,16 +150,70 @@ def plot_sim(df: pd.DataFrame):
         st.write("No graph data available.")
         return
 
-    st.subheader("Projected time gain/loss")
-    st.line_chart(df.set_index("LapNumber")[["DeltaCum_s"]])
-    st.caption("Negative means the strategy is gaining time. Positive means it is losing time.")
+    # ----- Time difference chart -----
+    st.subheader("Projected Time Difference Relative to Baseline Strategy")
 
-    st.subheader("Projected race position")
-    pos_df = (
-        df.set_index("LapNumber")[["WhatIfPos"]]
-        .rename(columns={"WhatIfPos": "Projected position"})
+    time_df = df.copy()
+    time_df["LapNumber"] = pd.to_numeric(time_df["LapNumber"], errors="coerce")
+    time_df["DeltaCum_s"] = pd.to_numeric(time_df["DeltaCum_s"], errors="coerce")
+
+    fig_time = go.Figure()
+
+    fig_time.add_trace(
+        go.Scatter(
+            x=time_df["LapNumber"],
+            y=time_df["DeltaCum_s"],
+            mode="lines",
+            name="Time difference"
+        )
     )
-    st.line_chart(pos_df)
+
+    fig_time.add_hline(
+        y=0,
+        line_dash="dash",
+        annotation_text="Baseline strategy",
+        annotation_position="top left"
+    )
+
+    fig_time.update_layout(
+        title="Projected Time Difference Relative to Baseline Strategy",
+        xaxis_title="Lap Number",
+        yaxis_title="Time Difference (s)",
+        margin=dict(l=20, r=20, t=60, b=20)
+    )
+
+    st.plotly_chart(fig_time, use_container_width=True)
+    st.caption("Negative values indicate time gained relative to the baseline strategy, while positive values indicate time lost.")
+
+    # ----- Position chart -----
+    st.subheader("Projected Race Position")
+
+    pos_df = df.copy()
+    pos_df["LapNumber"] = pd.to_numeric(pos_df["LapNumber"], errors="coerce")
+    pos_df["WhatIfPos"] = pd.to_numeric(pos_df["WhatIfPos"], errors="coerce")
+
+    fig_pos = go.Figure()
+
+    fig_pos.add_trace(
+        go.Scatter(
+            x=pos_df["LapNumber"],
+            y=pos_df["WhatIfPos"],
+            mode="lines",
+            name="Projected position"
+        )
+    )
+
+    fig_pos.update_layout(
+        title="Projected Race Position Across the Comparison Window",
+        xaxis_title="Lap Number",
+        yaxis_title="Projected Position",
+        margin=dict(l=20, r=20, t=60, b=20)
+    )
+
+    # Lower position number is better, so invert axis
+    fig_pos.update_yaxes(autorange="reversed")
+
+    st.plotly_chart(fig_pos, use_container_width=True)
     st.caption("This shows the projected running position across the comparison window.")
 
 def plot_recommend_sim(df: pd.DataFrame):
@@ -165,20 +221,73 @@ def plot_recommend_sim(df: pd.DataFrame):
         st.write("No graph data available.")
         return
 
-    st.subheader("Projected time gain/loss after pitting")
-    st.line_chart(df.set_index("LapNumber")[["DeltaCum_s"]])
-    st.caption("Negative means the projected pit strategy is gaining time. Positive means it is losing time.")
+    # ----- Time difference chart -----
+    st.subheader("Projected Time Difference After Pitting")
 
-    st.subheader("Projected race position after pitting")
-    pos_df = (
-        df.set_index("LapNumber")[["WhatIfPos"]]
-        .rename(columns={"WhatIfPos": "Projected position"})
+    time_df = df.copy()
+    time_df["LapNumber"] = pd.to_numeric(time_df["LapNumber"], errors="coerce")
+    time_df["DeltaCum_s"] = pd.to_numeric(time_df["DeltaCum_s"], errors="coerce")
+
+    fig_time = go.Figure()
+
+    fig_time.add_trace(
+        go.Scatter(
+            x=time_df["LapNumber"],
+            y=time_df["DeltaCum_s"],
+            mode="lines",
+            name="Projected time difference"
+        )
     )
-    st.line_chart(pos_df)
-    st.caption("This shows the projected running position if the driver pits on the recommended lap.")
 
+    fig_time.add_hline(
+        y=0,
+        line_dash="dash",
+        annotation_text="Baseline strategy",
+        annotation_position="top left"
+    )
+
+    fig_time.update_layout(
+        title="Projected Time Difference After Pitting",
+        xaxis_title="Lap Number",
+        yaxis_title="Time Difference (s)",
+        margin=dict(l=20, r=20, t=60, b=20)
+    )
+
+    st.plotly_chart(fig_time, use_container_width=True)
+    st.caption("Negative values indicate the projected strategy is gaining time, while positive values indicate time loss.")
+
+    # ----- Position chart -----
+    st.subheader("Projected Race Position After Pitting")
+
+    pos_df = df.copy()
+    pos_df["LapNumber"] = pd.to_numeric(pos_df["LapNumber"], errors="coerce")
+    pos_df["WhatIfPos"] = pd.to_numeric(pos_df["WhatIfPos"], errors="coerce")
+
+    fig_pos = go.Figure()
+
+    fig_pos.add_trace(
+        go.Scatter(
+            x=pos_df["LapNumber"],
+            y=pos_df["WhatIfPos"],
+            mode="lines",
+            name="Projected position"
+        )
+    )
+
+    fig_pos.update_layout(
+        title="Projected Race Position After Pitting",
+        xaxis_title="Lap Number",
+        yaxis_title="Projected Position",
+        margin=dict(l=20, r=20, t=60, b=20)
+    )
+
+    fig_pos.update_yaxes(autorange="reversed")
+
+    st.plotly_chart(fig_pos, use_container_width=True)
+    st.caption("This shows the projected running position if the driver pits on the recommended lap.")
+    
 with tab2:
-    st.subheader("🔁 What-if simulation")
+    st.subheader("What-if simulation")
     run = st.button("Run what-if", type="primary", use_container_width=True)
     if run:
         try:
@@ -189,9 +298,51 @@ with tab2:
         show_quality_banner(out)
         show_confidence_badge(out)
 
-        st.markdown("### Result")
-        st.success(out.get("summary_short", out.get("summary_viewer", out.get("summary", "Done."))))
+        st.markdown("### Strategy Explanation")
+        st.success(out.get("summary_short", out.get("summary_viewer", out.get("summary", "No summary available."))))
 
+        cf = out.get("counterfactuals")
+        best_lap = None
+        best_delta = None
+        best_pos = None
+
+        if cf:
+            import pandas as pd
+            cf_df = pd.DataFrame(cf)
+            if len(cf_df):
+                best_row = cf_df.sort_values("delta_vs_actual_s").iloc[0]
+                best_lap = int(best_row["pit_lap"])
+                best_delta = float(best_row["delta_vs_actual_s"])
+                best_pos = int(best_row["whatif_pos_end_s"]) if pd.notna(best_row["whatif_pos_end_s"]) else None
+
+        confidence = out.get("confidence", "High")
+
+        traffic_text = "Moderate"
+        if best_delta is not None:
+            if abs(best_delta) < 0.5:
+                traffic_text = "Low"
+            elif abs(best_delta) > 2:
+                traffic_text = "High"
+
+        delta_text = "N/A"
+        if best_delta is not None:
+            if best_delta < 0:
+                delta_text = f"{abs(best_delta):.1f}s faster"
+            elif best_delta > 0:
+                delta_text = f"{abs(best_delta):.1f}s slower"
+            else:
+                delta_text = "No difference"
+
+        st.markdown("### Key Insights")
+        st.markdown(
+            f"""
+        - **Best nearby pit lap:** {best_lap if best_lap is not None else "N/A"}
+        - **Estimated time difference:** {delta_text}
+        - **Expected finishing position after pit:** {"P" + str(best_pos) if best_pos is not None else "N/A"}
+        - **Traffic impact:** {traffic_text}
+        - **Confidence:** {confidence}
+        """
+        )
         with st.expander("Why did the model say this?"):
             st.markdown(out.get("summary_detail", "No additional detail available."))
 
@@ -282,21 +433,79 @@ with tab1:
         show_quality_banner(out)
         show_confidence_badge(out)
 
-        st.info(out.get("summary_short", out.get("summary_viewer", out.get("summary", "Done."))))
+        st.markdown("### Strategy Explanation")
+        st.success(out.get("summary_short", out.get("summary_viewer", out.get("summary", "No summary available."))))
 
-        with st.expander("Why did the model say this?"):
+        cf = out.get("counterfactuals")
+        best_lap = None
+        best_delta = None
+        best_pos = None
+
+        if cf:
+            import pandas as pd
+            cf_df = pd.DataFrame(cf)
+            if len(cf_df):
+                best_row = cf_df.sort_values("delta_vs_actual_s").iloc[0]
+                best_lap = int(best_row["pit_lap"])
+                best_delta = float(best_row["delta_vs_actual_s"])
+                best_pos = int(best_row["whatif_pos_end_s"]) if pd.notna(best_row["whatif_pos_end_s"]) else None
+
+        confidence = out.get("confidence", "High")
+
+        traffic_text = "Moderate"
+        if best_delta is not None:
+            if abs(best_delta) < 0.5:
+                traffic_text = "Low"
+            elif abs(best_delta) > 2:
+                traffic_text = "High"
+
+        delta_text = "N/A"
+        if best_delta is not None:
+            if best_delta < 0:
+                delta_text = f"{abs(best_delta):.1f}s faster"
+            elif best_delta > 0:
+                delta_text = f"{abs(best_delta):.1f}s slower"
+            else:
+                delta_text = "No difference"
+
+        st.markdown("### Key Insights")
+        st.markdown(
+            f"""
+        - **Best alternative lap:** {best_lap if best_lap is not None else "N/A"}
+        - **Estimated time difference:** {delta_text}
+        - **Expected position after pit:** {"P" + str(best_pos) if best_pos is not None else "N/A"}
+        - **Traffic impact:** {traffic_text}
+        - **Confidence:** {confidence}
+        """
+        )
+
+        with st.expander("Why this decision?"):
             st.markdown(out.get("summary_detail", "No additional detail available."))
 
-        with st.expander("See ranked nearby alternatives"):
+        with st.expander("Nearby strategy comparison"):
             cf = out.get("counterfactuals")
             if cf:
-                cf_df = pd.DataFrame(cf)[["pit_lap", "delta_vs_actual_s", "whatif_pos_end_s", "label"]].copy()
-                cf_df["delta_vs_actual_s"] = cf_df["delta_vs_actual_s"].round(3)
+                import pandas as pd
+
+                cf_df = pd.DataFrame(cf).rename(columns={
+                    "pit_lap": "Pit Lap",
+                    "delta_vs_actual_s": "Time Difference vs Actual (s)",
+                    "whatif_pos_end_s": "Expected Position After Pit",
+                    "label": "Interpretation"
+                })
+
+                if "Interpretation" in cf_df.columns:
+                    cf_df["Interpretation"] = cf_df["Interpretation"].replace({
+                        "Better than actual": "Faster (Time Gain)",
+                        "Actual stop": "Baseline",
+                        "Worse than actual": "Slower (Time Loss)"
+                    })
+
                 st.dataframe(cf_df, use_container_width=True)
             else:
                 st.write("No nearby alternatives available.")
 
-        with st.expander("See nearby timing comparison"):
+        with st.expander("Nearby timing comparison"):
             cf = out.get("counterfactuals")
             if cf:
                 cf_df = pd.DataFrame(cf)
@@ -308,7 +517,7 @@ with tab1:
             else:
                 st.write("No nearby alternatives available.")
 
-        with st.expander("See expected position by pit lap"):
+        with st.expander("Expected position by pit lap"):
             cf = out.get("counterfactuals")
             if cf:
                 cf_df = pd.DataFrame(cf)

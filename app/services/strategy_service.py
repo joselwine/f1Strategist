@@ -1244,58 +1244,54 @@ class StrategyService:
             )
 
         short_lines = [
-            f"[{race_id}] {driver} pitted on lap {pit_lap}.",
+            f"{driver} pitted on lap {pit_lap} in {race_id}."
         ]
 
         pos = snapshot.get("Position") if snapshot else None
         if pos is not None:
             try:
-                short_lines.append(f"He was running P{int(pos)} at the time.")
+                short_lines.append(f"Race position at stop: P{int(pos)}.")
             except Exception:
                 pass
 
         if stop_ctx.get("weather_stop"):
-            short_lines.append("This looks like a weather-driven stop.")
+            short_lines.append("This appears to be a weather-driven stop.")
         elif stop_ctx.get("short_gap_stop"):
             laps = stop_ctx.get("laps_since_prev_stop")
-            short_lines.append(
-                f"This was an unusual short-gap stop, only {laps} laps after the previous stop."
-            )
+            short_lines.append(f"This was an unusual short-gap stop, only {laps} laps after the previous stop.")
         else:
-            short_lines.append("This looks like a standard strategic stop.")
+            short_lines.append("This appears to be a standard strategic stop.")
 
         rejoin_pos = actual_reasons.get("rejoin_pos")
         ahead_driver = actual_reasons.get("ahead_driver_after_stop")
         gap_ahead = actual_reasons.get("gap_ahead_after_stop_s")
 
         if rejoin_pos is not None:
-            short_lines.append(f"He was projected to rejoin around P{int(rejoin_pos)}.")
+            short_lines.append(f"Projected rejoin position: P{int(rejoin_pos)}.")
 
         if ahead_driver and gap_ahead is not None:
-            short_lines.append(
-                f"After the stop, the car ahead was {ahead_driver}, about {float(gap_ahead):.2f}s ahead."
-            )
+            short_lines.append(f"Car ahead after stop: {ahead_driver} (~{float(gap_ahead):.2f}s ahead).")
         elif gap_ahead is not None:
-            short_lines.append(
-                f"After the stop, the gap to the car ahead was about {float(gap_ahead):.2f}s."
-            )
+            short_lines.append(f"Gap to car ahead after stop: ~{float(gap_ahead):.2f}s.")
 
         if best_vs_actual is not None and int(best_vs_actual["pit_lap"]) != int(pit_lap):
             delta = float(best_vs_actual.get("delta_vs_actual_s", 0.0))
             if delta < 0:
                 short_lines.append(
-                    f"The best nearby alternative was lap {best_vs_actual['pit_lap']}, about {abs(delta):.1f}s better than the actual stop."
+                    f"Best nearby alternative: lap {best_vs_actual['pit_lap']} (~{abs(delta):.1f}s faster)."
                 )
             elif delta > 0:
-                short_lines.append("The actual stop was better than the nearby alternatives checked.")
+                short_lines.append("The actual stop performed better than the nearby alternatives checked.")
 
         if pattern_text:
             short_lines.append(pattern_text)
 
         if uo_lines:
             short_lines.append(uo_lines[0])
-            summary_short = "\n".join(short_lines)
-            summary_viewer = "\n".join(viewer_lines)
+
+        summary_short = "\n".join(short_lines)
+        summary_viewer = "\n".join(viewer_lines)
+
 
         # --------------------------
         # DETAIL SUMMARY (long)
