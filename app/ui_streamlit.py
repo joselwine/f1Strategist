@@ -93,6 +93,8 @@ with st.sidebar:
 
     driver = st.selectbox("Driver", available_drivers, index=default_driver_index)
     horizon = st.slider("Horizon (laps)", 5, 40, 20)
+    st.caption("Tip: Horizon controls how many laps ahead the simulated strategy is compared with the real strategy.")
+    st.caption("E.g. A horizon of 20 compares outcomes over the next 20 laps from the selected pit lap.")
     st.divider()
 
     st.subheader("Mode inputs")
@@ -288,6 +290,7 @@ def plot_recommend_sim(df: pd.DataFrame):
 
 with tab2:
     st.subheader("What-if simulation")
+    st.info("Note: What-if results are compared against the real strategy over the selected horizon, rather than necessarily to the final race result.")
     run = st.button("Run what-if", type="primary", use_container_width=True)
     if run:
         try:
@@ -333,7 +336,7 @@ with tab2:
             else:
                 delta_text = "No difference"
 
-        st.markdown("### Key Insights")
+        st.markdown("### Key Insights (comparison over selected horizon)")
 
         sim_df = out.get("df")
         confidence = out.get("confidence", "High")
@@ -407,6 +410,8 @@ with tab2:
         """
         )
 
+        st.caption("These insights compare the selected pit strategy against the real strategy over the chosen comparison window.")
+
         with st.expander("Why did the model say this?"):
             st.markdown(out.get("summary_detail", "No additional detail available."))
 
@@ -446,8 +451,11 @@ with tab2:
 
 with tab3:
     st.subheader("Pit recommendation")
+    st.caption("Use this mode during a race to test whether pitting on the current lap looks strong relative to nearby alternatives. The recommendation is based on comparisons within the tested local pit window.")
+    st.info("This tab recommends the best pit lap from your current position. Use 'What-if' if you want to test a specific lap manually.")
     current_lap = st.number_input("Current lap", min_value=1, max_value=200, value=18)
-
+    st.caption("Tip: Enter the lap you are currently at in the race. The model will compare that point with nearby pit options and identify the strongest local choice.")
+    
     if st.button("Recommend pit lap", type="primary", use_container_width=True):
         out = svc.recommend_pit_lap(
             race_id=race_id,
@@ -460,43 +468,93 @@ with tab3:
         show_quality_banner(out)
         show_confidence_badge(out)
 
+        st.markdown("### Recommendation Summary")
         st.success(out.get("summary_short", out.get("summary_viewer", out.get("summary", "Done."))))
+        st.caption("The recommendation identifies the strongest pit timing within a short decision window, helping users make real-time strategy calls during a race.")
+
+        st.markdown("### Key Insights")
+
+        best = out.get("best", {})
+
+        st.markdown(f"""
+        - **Recommended pit lap:** {best.get("pit_lap", "N/A")}
+        - **Compared laps:** {current_lap}–{current_lap + 5}
+        - **Expected time impact:** {round(best.get("delta_vs_best_s", 0), 2)}s vs best option
+        - **Expected position after window:** P{best.get("whatif_pos_end", "N/A")}
+        - **Likely rejoin position:** P{best.get("rejoin_pos", "N/A")}
+        - **Estimated traffic cost:** {round(best.get("traffic_cost", 0), 2)}s
+        - **Confidence:** {out.get("confidence", "High")}
+        """)
+
+        st.caption("These insights compare pit options within the local strategy window, not the full race outcome.")
 
         with st.expander("Why this lap is recommended"):
             st.markdown(out.get("summary_detail", "No additional detail available."))
 
-        with st.expander("See ranked nearby options"):
+        with st.expander("Nearby lap comparison"):
             cf = out.get("counterfactuals")
             if cf:
                 cf_df = pd.DataFrame(cf)[["pit_lap", "delta_vs_best_s", "whatif_pos_end", "label"]].copy()
-                cf_df["delta_vs_best_s"] = cf_df["delta_vs_best_s"].round(3)
+
+                cf_df.columns = [
+                    "Pit Lap",
+                    "Time Difference vs Best (s)",
+                    "Expected Position After Window",
+                    "Interpretation"
+                ]
+                cf_df["Time Difference vs Best (s)"] = cf_df["Time Difference vs Best (s)"].round(3)
                 st.dataframe(cf_df, use_container_width=True)
             else:
                 st.write("No nearby alternatives available.")
 
-        with st.expander("See pit-window comparison"):
+        with st.expander("Pit-window comparison"):
             cf = out.get("counterfactuals")
             if cf:
                 cf_df = pd.DataFrame(cf)
                 if "pit_lap" in cf_df.columns and "delta_vs_best_s" in cf_df.columns:
-                    st.line_chart(cf_df.set_index("pit_lap")[["delta_vs_best_s"]])
-                    st.caption("Zero is the recommended lap. Positive values are worse than the best option.")
+                    fig_window = go.Figure()
+
+                    fig_window.add_trace(
+                        go.Scatter(
+                            x=cf_df["pit_lap"],
+                            y=cf_df["delta_vs_best_s"],
+                            mode="lines+markers",
+                            name="Time difference vs best"
+                        )
+                    )
+
+                    fig_window.add_hline(
+                        y=0,
+                        line_dash="dash",
+                        annotation_text="Recommended lap",
+                        annotation_position="top left"
+                    )
+
+                    fig_window.update_layout(
+                        title="Pit-window Comparison Relative to the Recommended Lap",
+                        xaxis_title="Pit Lap",
+                        yaxis_title="Time Difference vs Best (s)",
+                        margin=dict(l=20, r=20, t=60, b=20)
+                    )
+
+                    st.plotly_chart(fig_window, use_container_width=True)
+                    st.caption("Zero represents the recommended lap. Positive values indicate slower outcomes than the best option.")
                 else:
                     st.write("No pit-window chart available.")
             else:
                 st.write("No nearby alternatives available.")
 
-        with st.expander("Advanced: projected race trace if the driver pits on the recommended lap"):
-            best = out.get("best", {})
-            df = best.get("df") if isinstance(best, dict) else None
-            if df is not None and len(df):
-                plot_recommend_sim(df)
-            else:
-                st.write("No projection data available.")
+                with st.expander("Projected race trace"):
+                    best = out.get("best", {})
+                    df = best.get("df") if isinstance(best, dict) else None
+                    if df is not None and len(df):
+                        plot_recommend_sim(df)
+                    else:
+                        st.write("No projection data available.")
 
 with tab1:
     st.subheader("Explain a real pit stop")
-
+    st.caption("This mode compares the actual pit stop against nearby alternatvies to help explain whether the timing was strong or pitting on a nearby lap may have been more effective.")
     if st.button("Explain pit", type="primary", use_container_width=True):
         out = svc.explain_real_pit(
             race_id=race_id,
