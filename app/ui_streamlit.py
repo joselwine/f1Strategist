@@ -100,6 +100,7 @@ with st.sidebar:
     st.subheader("Mode inputs")
     pit_lap = st.number_input("Pit lap", min_value=1, max_value=200, value=28)
     window = st.slider("Explain window (± laps)", 1, 6, 2)
+    st.caption("Tip: Adjust the window to compare more or less nearby options.")
     debug_mode = st.checkbox("Show debug pit-window data", value=False)
 
 # -------- Tabs --------
@@ -290,6 +291,8 @@ def plot_recommend_sim(df: pd.DataFrame):
 
 with tab2:
     st.subheader("What-if simulation")
+    st.caption("Test a specific pit lap and compare it directly against the real strategy. This mode helps you understand the impact of an alternative decision.")
+    st.info("Use this tab to analyse a specific pit decision. Use 'Pit recommendation' if you want the model to suggest the best lap automatically.")
     st.info("Note: What-if results are compared against the real strategy over the selected horizon, rather than necessarily to the final race result.")
     run = st.button("Run what-if", type="primary", use_container_width=True)
     if run:
