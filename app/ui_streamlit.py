@@ -559,111 +559,114 @@ with tab1:
     st.subheader("Explain a real pit stop")
     st.caption("This mode compares the actual pit stop against nearby alternatvies to help explain whether the timing was strong or pitting on a nearby lap may have been more effective.")
     if st.button("Explain pit", type="primary", use_container_width=True):
-        out = svc.explain_real_pit(
-            race_id=race_id,
-            driver=driver,
-            pit_lap=int(pit_lap),
-            horizon_laps=int(horizon),
-            window=int(window),
-            prefer="viewer",
-        )
+        try:
+            out = svc.explain_real_pit(
+                race_id=race_id,
+                driver=driver,
+                pit_lap=int(pit_lap),
+                horizon_laps=int(horizon),
+                window=int(window),
+                prefer="viewer",
+            )
 
-        show_quality_banner(out)
-        show_confidence_badge(out)
+            show_quality_banner(out)
+            show_confidence_badge(out)
 
-        st.markdown("### Strategy Explanation")
-        st.success(out.get("summary_short", out.get("summary_viewer", out.get("summary", "No summary available."))))
+            st.markdown("### Strategy Explanation")
+            st.success(out.get("summary_short", out.get("summary_viewer", out.get("summary", "No summary available."))))
 
-        cf = out.get("counterfactuals")
-        best_lap = None
-        best_delta = None
-        best_pos = None
-
-        if cf:
-            import pandas as pd
-            cf_df = pd.DataFrame(cf)
-            if len(cf_df):
-                best_row = cf_df.sort_values("delta_vs_actual_s").iloc[0]
-                best_lap = int(best_row["pit_lap"])
-                best_delta = float(best_row["delta_vs_actual_s"])
-                best_pos = int(best_row["whatif_pos_end_s"]) if pd.notna(best_row["whatif_pos_end_s"]) else None
-
-        confidence = out.get("confidence", "High")
-
-        traffic_text = "Moderate"
-        if best_delta is not None:
-            if abs(best_delta) < 0.5:
-                traffic_text = "Low"
-            elif abs(best_delta) > 2:
-                traffic_text = "High"
-
-        delta_text = "N/A"
-        if best_delta is not None:
-            if best_delta < 0:
-                delta_text = f"{abs(best_delta):.1f}s faster"
-            elif best_delta > 0:
-                delta_text = f"{abs(best_delta):.1f}s slower"
-            else:
-                delta_text = "No difference"
-
-        st.markdown("### Key Insights")
-        st.markdown(
-            f"""
-        - **Best alternative lap:** {best_lap if best_lap is not None else "N/A"}
-        - **Estimated time difference:** {delta_text}
-        - **Expected position after pit:** {"P" + str(best_pos) if best_pos is not None else "N/A"}
-        - **Traffic impact:** {traffic_text}
-        - **Confidence:** {confidence}
-        """
-        )
-
-        with st.expander("Why this decision?"):
-            st.markdown(out.get("summary_detail", "No additional detail available."))
-
-        with st.expander("Nearby strategy comparison"):
             cf = out.get("counterfactuals")
+            best_lap = None
+            best_delta = None
+            best_pos = None
+
             if cf:
                 import pandas as pd
+                cf_df = pd.DataFrame(cf)
+                if len(cf_df):
+                    best_row = cf_df.sort_values("delta_vs_actual_s").iloc[0]
+                    best_lap = int(best_row["pit_lap"])
+                    best_delta = float(best_row["delta_vs_actual_s"])
+                    best_pos = int(best_row["whatif_pos_end_s"]) if pd.notna(best_row["whatif_pos_end_s"]) else None
 
-                cf_df = pd.DataFrame(cf).rename(columns={
-                    "pit_lap": "Pit Lap",
-                    "delta_vs_actual_s": "Time Difference vs Actual (s)",
-                    "whatif_pos_end_s": "Expected Position After Pit",
-                    "label": "Interpretation"
-                })
+            confidence = out.get("confidence", "High")
 
-                if "Interpretation" in cf_df.columns:
-                    cf_df["Interpretation"] = cf_df["Interpretation"].replace({
-                        "Better than actual": "Faster (Time Gain)",
-                        "Actual stop": "Baseline",
-                        "Worse than actual": "Slower (Time Loss)"
+            traffic_text = "Moderate"
+            if best_delta is not None:
+                if abs(best_delta) < 0.5:
+                    traffic_text = "Low"
+                elif abs(best_delta) > 2:
+                    traffic_text = "High"
+
+            delta_text = "N/A"
+            if best_delta is not None:
+                if best_delta < 0:
+                    delta_text = f"{abs(best_delta):.1f}s faster"
+                elif best_delta > 0:
+                    delta_text = f"{abs(best_delta):.1f}s slower"
+                else:
+                    delta_text = "No difference"
+
+            st.markdown("### Key Insights")
+            st.markdown(
+                f"""
+            - **Best alternative lap:** {best_lap if best_lap is not None else "N/A"}
+            - **Estimated time difference:** {delta_text}
+            - **Expected position after pit:** {"P" + str(best_pos) if best_pos is not None else "N/A"}
+            - **Traffic impact:** {traffic_text}
+            - **Confidence:** {confidence}
+            """
+            )
+
+            with st.expander("Why this decision?"):
+                st.markdown(out.get("summary_detail", "No additional detail available."))
+
+            with st.expander("Nearby strategy comparison"):
+                cf = out.get("counterfactuals")
+                if cf:
+                    import pandas as pd
+
+                    cf_df = pd.DataFrame(cf).rename(columns={
+                        "pit_lap": "Pit Lap",
+                        "delta_vs_actual_s": "Time Difference vs Actual (s)",
+                        "whatif_pos_end_s": "Expected Position After Pit",
+                        "label": "Interpretation"
                     })
 
-                st.dataframe(cf_df, use_container_width=True)
-            else:
-                st.write("No nearby alternatives available.")
+                    if "Interpretation" in cf_df.columns:
+                        cf_df["Interpretation"] = cf_df["Interpretation"].replace({
+                            "Better than actual": "Faster (Time Gain)",
+                            "Actual stop": "Baseline",
+                            "Worse than actual": "Slower (Time Loss)"
+                        })
 
-        with st.expander("Nearby timing comparison"):
-            cf = out.get("counterfactuals")
-            if cf:
-                cf_df = pd.DataFrame(cf)
-                if "pit_lap" in cf_df.columns and "delta_vs_actual_s" in cf_df.columns:
-                    st.line_chart(cf_df.set_index("pit_lap")[["delta_vs_actual_s"]])
-                    st.caption("Negative values are better than the actual stop. Positive values are worse.")
+                    st.dataframe(cf_df, use_container_width=True)
                 else:
-                    st.write("No nearby comparison chart available.")
-            else:
-                st.write("No nearby alternatives available.")
+                    st.write("No nearby alternatives available.")
 
-        with st.expander("Expected position by pit lap"):
-            cf = out.get("counterfactuals")
-            if cf:
-                cf_df = pd.DataFrame(cf)
-                if "pit_lap" in cf_df.columns and "whatif_pos_end_s" in cf_df.columns:
-                    st.line_chart(cf_df.set_index("pit_lap")[["whatif_pos_end_s"]])
-                    st.caption("This shows the expected position outcome for each nearby pit-lap option.")
+            with st.expander("Nearby timing comparison"):
+                cf = out.get("counterfactuals")
+                if cf:
+                    cf_df = pd.DataFrame(cf)
+                    if "pit_lap" in cf_df.columns and "delta_vs_actual_s" in cf_df.columns:
+                        st.line_chart(cf_df.set_index("pit_lap")[["delta_vs_actual_s"]])
+                        st.caption("Negative values are better than the actual stop. Positive values are worse.")
+                    else:
+                        st.write("No nearby comparison chart available.")
                 else:
-                    st.write("No position chart available.")
-            else:
-                st.write("No nearby alternatives available.")
+                    st.write("No nearby alternatives available.")
+
+            with st.expander("Expected position by pit lap"):
+                cf = out.get("counterfactuals")
+                if cf:
+                    cf_df = pd.DataFrame(cf)
+                    if "pit_lap" in cf_df.columns and "whatif_pos_end_s" in cf_df.columns:
+                        st.line_chart(cf_df.set_index("pit_lap")[["whatif_pos_end_s"]])
+                        st.caption("This shows the expected position outcome for each nearby pit-lap option.")
+                    else:
+                        st.write("No position chart available.")
+                else:
+                    st.write("No nearby alternatives available.")
+        except ValueError as e:
+            st.warning(str(e))
 
