@@ -1,4 +1,3 @@
-# app/sim_service.py
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -9,9 +8,6 @@ import pandas as pd
 
 @dataclass
 class SimContext:
-    """
-    Holds heavy objects in memory so you don't reload them every request.
-    """
     df_fe: pd.DataFrame
     pace_model: Any
     pace_features: list[str]
@@ -40,13 +36,8 @@ def run_strategy_sim(
     post_pit_push_boost_s: float = 0.0,
     use_real_post_pit: bool = True,
 ) -> dict:
-    """
-    One clean entry-point for the entire app.
-    Returns JSON-safe dict with:
-      - summary: key metrics
-      - laps: list[dict] per lap output
-    """
-    # ---- validate ----
+ 
+    # Validate inputs
     if not isinstance(race_id, str) or not race_id:
         raise ValueError("race_id must be a non-empty string")
     if not isinstance(driver, str) or not driver:
@@ -60,8 +51,6 @@ def run_strategy_sim(
     if pit_loss_s < 0:
         raise ValueError("pit_loss_s must be >= 0")
 
-    # ---- import here to avoid circular imports ----
-    # adjust this import path to match your project
     from ML.src.simulator import simulate_pit_rejoin_and_traffic
 
     out: pd.DataFrame = simulate_pit_rejoin_and_traffic(
@@ -85,7 +74,7 @@ def run_strategy_sim(
     if out.empty:
         raise ValueError("Simulation returned empty output")
 
-    # ---- build summary (keep it stable over time) ----
+    # Build summary
     last = out.iloc[-1]
 
     summary = {
@@ -98,7 +87,6 @@ def run_strategy_sim(
         "whatif_pos_end": int(last["WhatIfPos"]),
     }
 
-    # optional: include a few useful extras if present
     optional_cols = ["TrafficPenalty_s", "GapAhead_s", "AheadDriver", "RejoinPos", "RejoinGapAhead"]
     for c in optional_cols:
         if c in out.columns:
@@ -106,10 +94,10 @@ def run_strategy_sim(
             # convert NaNs safely
             summary[c] = None if pd.isna(val) else (float(val) if isinstance(val, (int, float)) else str(val))
 
-    # ---- JSON-safe laps ----
+    # JSON-safe laps 
     laps = out.copy()
 
-    # Convert numpy types -> python types
+    # Convert numpy types to python types
     laps_dicts = []
     for rec in laps.to_dict("records"):
         clean = {}

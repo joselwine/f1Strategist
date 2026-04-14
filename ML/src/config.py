@@ -23,13 +23,13 @@ ALL_RACES = {
     2025: ["Bahrain", "Saudi Arabia", "Australia", "Azerbaijan",
     "Miami", "Monaco", "Spain", "Canada", "Emilia-Romagna", 
     "Austria", "Britain", "Hungary", "Belgium", "Netherlands", "Italy", "Singapore", "Japan", "United States", "Mexico", "Brazil", "Las Vegas"
-    ],   # when released
+    ],   
 }
 
 TRAIN_RACES = [
     (year, race)
     for year in [2022, 2023, 2024, 2025]
-    for race in ALL_RACES[year][:-2]     # leave last two as test
+    for race in ALL_RACES[year][:-2]     # leaves last two as test
 ]
 
 TEST_RACES = [

@@ -1,17 +1,14 @@
-# src/simulator.py
 from __future__ import annotations
 
 from dataclasses import dataclass
 from collections import deque
-from typing import Iterable, List, Optional, Tuple, Dict
+from typing import List, Optional, Dict
 
 import numpy as np
 import pandas as pd
 
 
-# ----------------------------
 # Tyre wear helpers
-# ----------------------------
 WEAR_CAP_DEFAULT = {"SOFT": 18, "MEDIUM": 25, "HARD": 35}
 
 
@@ -26,10 +23,7 @@ def wear_frac(tyre_life: float, compound: str, wear_cap: Dict[str, int] = WEAR_C
 def _mean(dq: deque) -> float:
     return float(np.mean(dq)) if len(dq) else np.nan
 
-
-# ----------------------------
 # Data selection / validation
-# ----------------------------
 def get_driver_race_laps(df: pd.DataFrame, race_id: str, driver_code: str) -> pd.DataFrame:
     """Filter and sort per-lap rows for a single driver in a single race."""
     sub = df[(df["RaceId"] == race_id) & (df["Driver"] == driver_code)].copy()
@@ -40,11 +34,7 @@ def get_driver_race_laps(df: pd.DataFrame, race_id: str, driver_code: str) -> pd
 
 
 def pick_same_compound(sub: pd.DataFrame, pit_lap: int) -> str:
-    """
-    Choose the compound we assume the driver will be on after the pit.
-    For a 'same compound pit', we use the compound at pit_lap if available,
-    otherwise fall back to the mode.
-    """
+
     comp = sub["Compound"].mode().iloc[0]
     if (sub["LapNumber"] == pit_lap).any():
         tmp = sub.loc[sub["LapNumber"] == pit_lap, "Compound"].mode()
@@ -59,7 +49,7 @@ def require_features_exist(df: pd.DataFrame, features: List[str]) -> None:
         raise ValueError(
             "Simulator was asked to use features that are not in the dataframe.\n"
             f"Missing: {missing}\n"
-            "Fix: ensure your df_fe has these engineered features, and pass the same list used in training."
+            "Ensure  df_fe has these engineered features."
         )
 
 
@@ -107,9 +97,7 @@ def neutralise_pit_event(what_laptime, drv, pitlap, slow_thresh=8.0, max_window=
     return what_laptime, event_laps, repl
 
 
-# ----------------------------
 # Core simulator
-# ----------------------------
 def simulate_what_if_pit_stateful(
     df: pd.DataFrame,
     pace_model,
@@ -122,7 +110,7 @@ def simulate_what_if_pit_stateful(
     wear_cap: Dict[str, int] = WEAR_CAP_DEFAULT,
 ) -> pd.DataFrame:
     """
-    Stateful 'what-if pit' simulator.
+    Stateful 'what-if' simulator.
 
     Baseline:
       - Uses the real race rows as state templates
@@ -145,7 +133,7 @@ def simulate_what_if_pit_stateful(
 
     sub = get_driver_race_laps(df, race_id, driver_code)
 
-    # Ensure required columns exist for feature computation
+    # Check required feature columns
     require_features_exist(sub, [c for c in pace_features if c not in ("lap_avg_3", "TyreWearFrac")])
 
     max_lap = infer_total_laps(sub)
@@ -156,7 +144,7 @@ def simulate_what_if_pit_stateful(
 
     comp_after = pick_same_compound(sub, pit_lap)
 
-    # Seed rolling window with REAL LapTime_s values before pit lap if available
+    # Seed the rolling lap-time window using recent real laps
     # This helps lap_avg_3 behave sensibly at the first simulated laps.
     base_q = deque(maxlen=3)
     what_q = deque(maxlen=3)
@@ -171,9 +159,7 @@ def simulate_what_if_pit_stateful(
     for lap in range(pit_lap, end_lap + 1):
         row_real = sub.loc[sub["LapNumber"] == lap].iloc[0].copy()
 
-        # -------------------------
         # Baseline row (real state template)
-        # -------------------------
         base_row = row_real.copy()
 
         if "lap_avg_3" in base_row.index:
@@ -186,12 +172,9 @@ def simulate_what_if_pit_stateful(
                 wear_cap=wear_cap,
             )
 
-        # -------------------------
-        # What-if row (apply pit + reset state)
-        # -------------------------
         what_row = row_real.copy()
 
-        # Force compound after pit (same compound scenario)
+        # Force compound after pit 
         if "Compound" in what_row.index:
             what_row["Compound"] = comp_after
 
@@ -202,17 +185,16 @@ def simulate_what_if_pit_stateful(
         if "TyreLife" in what_row.index:
             what_row["TyreLife"] = 1 if rel == 0 else (rel + 1)
 
-        # Bump stint/stops
+        # Increment stint and stop count
         if "Stint" in what_row.index:
             what_row["Stint"] = what_row["Stint"] + 1
         if "StopsSoFar" in what_row.index:
             what_row["StopsSoFar"] = what_row["StopsSoFar"] + 1
 
-        # Rolling feature (use what-if queue)
+        # Rolling feature 
         if "lap_avg_3" in what_row.index:
             what_row["lap_avg_3"] = _mean(what_q)
 
-        # Update TyreWearFrac for what-if state AFTER updating TyreLife/Compound
         if "TyreWearFrac" in what_row.index:
             what_row["TyreWearFrac"] = wear_frac(
                 what_row.get("TyreLife", np.nan),
@@ -220,19 +202,15 @@ def simulate_what_if_pit_stateful(
                 wear_cap=wear_cap,
             )
 
-
-        # -------------------------
         # Predict pace
-        # -------------------------
         Xw = pd.DataFrame([what_row])[pace_features]
 
         # What-if: model predicts LapDelta
         what_delta = float(pace_model.predict(Xw)[0])
 
-        # Baseline: use REAL lap time from the dataset
         base_pred_time = float(row_real["LapTime_s"])
 
-        # Convert what-if delta -> absolute lap time using the what-if lap_avg_3 anchor
+        # Convert what-if delta to absolute lap time using the what-if lap_avg_3 anchor
         what_lap_avg = float(what_row.get("lap_avg_3", np.nan))
         if not np.isfinite(what_lap_avg):
             # fallback anchor if lap_avg_3 missing/NaN
@@ -245,19 +223,14 @@ def simulate_what_if_pit_stateful(
             what_pred_time += pit_loss_s
 
 
-
-        # Apply pit loss once on pit lap (in lap-time seconds)
-        if lap == pit_lap:
-            what_pred_time += pit_loss_s
-
-        # Update rolling queues using predicted LAP TIMES (not deltas)
+        # Update rolling queues using predicted lap times (not deltas)
         base_q.append(base_pred_time)
         what_q.append(what_pred_time)
 
         rows.append({
             "LapNumber": lap,
-            "PredLapTime_Base": base_pred_time,        # now REAL seconds (90–110 etc)
-            "PredLapTime_WhatIf": what_pred_time,      # now REAL seconds too
+            "PredLapTime_Base": base_pred_time,        
+            "PredLapTime_WhatIf": what_pred_time,      
             "Delta_WhatIf_minus_Base": what_pred_time - base_pred_time
         })
 
@@ -271,14 +244,12 @@ def simulate_what_if_pit_stateful(
     out["HorizonLaps"] = horizon_laps
 
     return out
-# src/simulator.py
 
 import numpy as np
-import pandas as pd
 
 TRAFFIC_GAP_S = 1.5  # affected by dirty air
 SIM_WINDOW = 8
-STABILISE_LAPS = 3  # 2–4 is realistic
+STABILISE_LAPS = 3  
 
 
 def _build_cumtime_table(race_df: pd.DataFrame) -> pd.DataFrame:
@@ -290,7 +261,6 @@ def _build_cumtime_table(race_df: pd.DataFrame) -> pd.DataFrame:
     """
     tmp = race_df.sort_values(["Driver", "LapNumber"]).copy()
 
-    # If LapTime_s has weird outliers (e.g., red flags), you may later filter those laps
     tmp["LapTime_s"] = pd.to_numeric(tmp["LapTime_s"], errors="coerce")
     tmp = tmp.dropna(subset=["LapTime_s"])
 
@@ -314,9 +284,9 @@ def simulate_pit_rejoin_and_traffic(
     pass_advantage_s: float = 0.4,
     cancel_real_pit: bool = True,
     post_pit_push_laps: int = 0,
-    post_pit_push_boost_s: float = 0.0,   # subtract this many seconds (faster)
-    push_decay: str = "linear",   # "linear" or "exp"
-    push_exp_k: float = 0.7,      # only used if push_decay="exp"
+    post_pit_push_boost_s: float = 0.0,   
+    push_decay: str = "linear",   
+    push_exp_k: float = 0.7,      
     use_real_post_pit: bool = True,
     verbose: bool = False,
     real_pit_reference_lap : int | None = None
@@ -326,23 +296,23 @@ def simulate_pit_rejoin_and_traffic(
     Race-aware what-if:
       - Baseline for all drivers uses REAL LapTime_s.
       - For chosen driver, overwrite lap times in a window with model-based predictions.
-      - If overcut (pit later than real pit), we simulate from the REAL pit lap, and
+      - If overcut (pit later than real pit), simulate from the REAL pit lap, and
         force the state to look like "stayed out" until the what-if pit lap.
       - Add pit loss only on the what-if pit lap.
       - Recompute position each lap using cumulative time.
       - Traffic penalty: if within traffic_gap_s and not enough pace advantage to pass, add traffic_loss_s.
 
-    Returns a per-lap table for lap range [pit_lap..end_lap] with:
+    Returns a per-lap table for lap range [pit_lap...end_lap] with:
       positions, cum times, delta, penalties, and debug columns.
     """
-    # ---- debug stores (loop-time) ----
+    # Debug stores 
     gap_used = {}
     ahead_used = {}
     pace_adv_used = {}
     penalty_used = {}
     pos_used = {}
     push_boost_used = {}
-    # ---- debug stores (prediction-time) ----
+    # Debug stores (prediction) 
     ref_used = {}
     delta_used = {}
     pred_lt_used = {}
@@ -364,7 +334,7 @@ def simulate_pit_rejoin_and_traffic(
         raise ValueError(f"No data for driver {driver_code} in race {race_id}")
  
 
-    # ---- Consistent int lap key ----
+    # Consistent int lap key 
     race["LapNumber_i"] = race["LapNumber"].astype(int)
     drv["LapNumber_i"]  = drv["LapNumber"].astype(int)
 
@@ -372,12 +342,12 @@ def simulate_pit_rejoin_and_traffic(
     end_lap = min(int(pit_lap) + int(horizon_laps), max_lap_race)
     delta_lock_lap = min(int(pit_lap) + STABILISE_LAPS, end_lap)
 
-    # ---- Baseline cumulative times for all drivers (REAL) ----
+    # Baseline cumulative times for all drivers 
     base_cum = _build_cumtime_table(race)
     if driver_code not in base_cum.columns:
         raise ValueError(f"{driver_code} not found in race {race_id}")
 
-    # ---- Build continuous lap-time Series for the driver (fixes KeyError 10 / missing laps) ----
+    # Build continuous lap-time series for the driver 
     full_laps = pd.Index(
         range(1, max_lap_race + 1), 
         name="LapNumber_i"
@@ -392,7 +362,6 @@ def simulate_pit_rejoin_and_traffic(
         .bfill()
     )
 
-    # after drv and max_lap_race are known, before interpolate
     raw = drv.set_index("LapNumber_i")["LapTime_s"].astype(float)
     full_laps = pd.Index(range(1, max_lap_race + 1), name="LapNumber_i")
 
@@ -406,17 +375,16 @@ def simulate_pit_rejoin_and_traffic(
         .bfill()
     )
 
-    # later when returning out dataframe, attach metadata:
     quality = {
         "missing_laps_count": missing_count,
         "missing_laps_sample": missing_laps[:10],
         "interpolated_used": missing_count > 0,
     }
 
-    what_laptime = real_laptime.copy()  # we overwrite simulated laps later
-    drv_laps_set = set(full_laps.tolist())  # now every lap exists
+    what_laptime = real_laptime.copy()  
+    drv_laps_set = set(full_laps.tolist())  
 
-    # --- Detect real pit lap (first pit) if available
+    # Detect real pit lap if available 
     real_pit_lap = None
     real_pits = []
     if cancel_real_pit and ("is_pit_lap" in drv.columns):
@@ -436,7 +404,7 @@ def simulate_pit_rejoin_and_traffic(
     rp = real_pit_lap
     wp = pit_lap
 
-    # --- detect where the "pit loss" actually sits in THIS driver's data (pit lap vs outlap) ---
+    # Detect where the pit loss is in driver's data (pit lap vs outlap) 
     rp_loss_lap = None
     pitloss_offset = 0
 
@@ -460,20 +428,16 @@ def simulate_pit_rejoin_and_traffic(
             sum(float(real_laptime.loc[int(L)]) for L in real_event_laps)
             - float(repl) * len(real_event_laps)
         )
-        real_loss = max(0.0, real_loss)  # safety
+        real_loss = max(0.0, real_loss)  
 
 
-    # only predict from the WHAT-IF pit onwards (both undercut + overcut)
     laps_to_predict = list(range(wp, end_lap + 1))
-
-
     laps_to_predict = sorted(set(int(x) for x in laps_to_predict))
 
     first_sim_lap = int(laps_to_predict[0])
     sim_rows = drv[drv["LapNumber_i"].astype(int).isin(laps_to_predict)].copy().sort_values("LapNumber_i")
     sim_laps = sim_rows["LapNumber_i"].astype(int).values
 
-    # Pick the "post-pit" compound from the REAL race (what he actually switched to)
     post_compound = None
     if real_pit_lap is not None:
         # often compound is updated from the lap AFTER the pit
@@ -481,7 +445,7 @@ def simulate_pit_rejoin_and_traffic(
         if len(nxt) and "Compound" in nxt.columns:
             post_compound = nxt["Compound"].iloc[0]
 
-    # --- Base cumulative time series for driver (REAL)
+    # Base cumulative time series for driver 
     base_driver_cum = base_cum[driver_code].copy()
 
     first_sim_lap = int(min(laps_to_predict))
@@ -489,8 +453,7 @@ def simulate_pit_rejoin_and_traffic(
     anchor_lap = first_sim_lap - 1
     anchor = 0.0 if anchor_lap <= 0 else float(base_driver_cum.loc[anchor_lap])
 
-    # --- Lap-time series for traffic comparisons (start from REAL, overwrite simulated laps)
-    #what_laptime = drv.set_index("LapNumber")["LapTime_s"].astype(float).copy()
+    # Lap-time series for traffic comparisons 
 
     if real_pit_lap is not None and verbose:
         print("rp/wp:", real_pit_lap, pit_lap)
@@ -503,9 +466,7 @@ def simulate_pit_rejoin_and_traffic(
                 is_pit = int(tmp.iloc[0]) if len(tmp) else 0
             print(L, "real", round(real_lt,3), "what", round(wl_lt,3), "is_pit", is_pit)
     
-    # ------------------------------------------------------------
     # Predict: model outputs LapDelta, convert to LapTime using lap_avg_3
-    # ------------------------------------------------------------
     is_overcut = (rp is not None) and (wp > rp)
     is_undercut = (rp is not None) and (wp < rp)
 
@@ -513,8 +474,6 @@ def simulate_pit_rejoin_and_traffic(
         raise ValueError("lap_avg_3 missing from sim_rows. Ensure add_features() ran and lap_avg_3 is in df_fe.")
 
     from collections import deque
-
-    first_sim_lap = int(min(laps_to_predict))
 
     seed_df = drv[
         (drv["LapNumber"].astype(int) >= first_sim_lap - 6) &
@@ -524,18 +483,17 @@ def simulate_pit_rejoin_and_traffic(
     if "TrackStatus" in seed_df.columns:
         seed_df = seed_df[seed_df["TrackStatus"].astype(int) == 1]
 
-    # basic filtering to avoid SC/pit/outliers poisoning the seed
+    # filtering 
     seed_df["LapTime_s"] = pd.to_numeric(seed_df["LapTime_s"], errors="coerce")
     seed_df = seed_df.dropna(subset=["LapTime_s"])
     seed_df = seed_df[(seed_df["LapTime_s"] > 60) & (seed_df["LapTime_s"] < 130)]
     if "is_pit_lap" in seed_df.columns:
         seed_df = seed_df[seed_df["is_pit_lap"].astype(int) == 0]
-    # If you have outlap/inlap flags, drop them too (they distort ref pace)
     for col in ["IsOutLap", "IsInLap"]:
         if col in seed_df.columns:
             seed_df = seed_df[seed_df[col].astype(int) == 0]
 
-    # Optional: tighten "normal lap" band for ref pace seeding
+
     seed_df = seed_df[(seed_df["LapTime_s"] > 75) & (seed_df["LapTime_s"] < 115)]
 
     seed = seed_df.tail(3)["LapTime_s"].astype(float).tolist()
@@ -545,7 +503,6 @@ def simulate_pit_rejoin_and_traffic(
             seed = [float(fallback.iloc[0])] * 3
     q = deque(seed, maxlen=3)
 
-    # --- estimate typical POST-pit pace from the REAL race (clean laps after the real pit) ---
     post_pit_seed = None
     if real_pit_lap is not None:
         post_df = drv[(drv["LapNumber"] >= real_pit_lap + 2) & (drv["LapNumber"] <= real_pit_lap + 6)].copy()
@@ -560,7 +517,7 @@ def simulate_pit_rejoin_and_traffic(
         if len(post_df):
             post_pit_seed = float(post_df["LapTime_s"].median())
 
-    # --- pre-pit state at lap BEFORE what-if pit (used for stint/stops transition) ---
+    # Pre-pit state at lap before what-if pit 
     pre_state = {"Stint": 1.0, "StopsSoFar": 0.0, "Compound": None}
 
     pre_row = drv.loc[drv["LapNumber"].astype(int) == int(pit_lap - 1)]
@@ -592,7 +549,7 @@ def simulate_pit_rejoin_and_traffic(
         row = rows.iloc[0]
         row_feat = row[pace_features].copy()
 
-        # Build SCENARIO features for the model (don't mutate sim_rows)
+        # Build scenario features for the model 
         row_feat_scn = row_feat.copy()
 
 
@@ -602,7 +559,7 @@ def simulate_pit_rejoin_and_traffic(
             # fallback if lap_avg_3 missing/NaN
             ref = float(np.mean(q)) if len(q) else float(row.get("LapTime_s", 0.0))
 
-        # ---- apply WHAT-IF pit state to features for ALL laps >= pit_lap ----
+        # Apply what-if pit state to features for all laps >= pit_lap 
         if lap >= pit_lap:
             k_age = int(lap - pit_lap)  # 0 on pit lap, 1 next lap, ...
 
@@ -612,41 +569,32 @@ def simulate_pit_rejoin_and_traffic(
                     row_feat_scn[col] = 1.0 + k_age
 
             # compound should switch to what the driver actually went onto in the real race
-            # (otherwise you get "fresh Medium" when reality is "fresh Hard" etc.)
             if post_compound is not None and "Compound" in row_feat_scn.index:
                 row_feat_scn["Compound"] = post_compound
 
-            # stint/stops increment once at the what-if pit (constant afterwards)
+            # stint/stops increment once at the what-if pit 
             if "Stint" in row_feat_scn.index:
                 row_feat_scn["Stint"] = pre_state["Stint"] + 1.0
             if "StopsSoFar" in row_feat_scn.index:
                 row_feat_scn["StopsSoFar"] = pre_state["StopsSoFar"] + 1.0
 
-            # IMPORTANT: don't let the model think this lap is a real pit/outlap if you already add pit_loss_s manually
             for col in ["is_pit_lap","IsPitLap","IsOutLap","IsInLap"]:
                 if col in row_feat_scn.index:
                     row_feat_scn[col] = 0
 
-            # If your model uses TyreWearFrac, reset it consistently too
-            # (Only do this if TyreWearFrac is actually in pace_features)
             if "TyreWearFrac" in row_feat_scn.index:
-                # simplest generic reset (safe): proportional to age, capped
-                # if you already have a wear_frac(compound, age) helper, use that instead
                 row_feat_scn["TyreWearFrac"] = min(1.0, (1.0 + k_age) / 35.0)
 
         real_lt = real_laptime
 
-        # ---- Keep your "neutralise REAL pit lap" block, but apply it to row_feat_scn ----
         if is_undercut and lap == real_pit_lap:
             for col in ["is_pit_lap","IsPitLap","IsOutLap","IsInLap"]:
                 if col in row_feat_scn.index:
                     row_feat_scn[col] = 0
 
         if use_real_post_pit:
-            # IMPORTANT: use the (possibly neutralised) what_laptime, not raw drv
             lt = float(what_laptime.loc[int(lap)])
-            scenario_loss_lap = wp + pitloss_offset  # your offset logic
-
+            scenario_loss_lap = wp + pitloss_offset  
             if lap == scenario_loss_lap and (rp is None or wp != rp):
                 lt += real_loss
 
@@ -655,24 +603,20 @@ def simulate_pit_rejoin_and_traffic(
             continue
 
 
-        # Now predict using scenario-consistent features
-        #d = float(pace_model.predict(row_feat_scn.to_frame().T)[0])
         d = float(pace_model.predict(row_feat_scn.to_frame().T)[0])
 
-        # hard safety bound on LapDelta (tune these numbers)
         d = float(np.clip(d, -2.5, 4.0))
 
         lt = ref + d
 
 
-        # Apply pit loss only on the WHAT-IF pit lap
         if lap == wp_loss_lap:
             lt += pit_loss_s
             # After the pit lap, reset the rolling reference pace to post-pit pace
             if post_pit_seed is not None:
                 q = deque([post_pit_seed, post_pit_seed, post_pit_seed], maxlen=3)
 
-        # Push boost (your existing logic)
+        # Push boost 
         push_applied = 0.0
         k = int(lap - pit_lap)
         if post_pit_push_laps and (1 <= k <= post_pit_push_laps):
@@ -694,25 +638,19 @@ def simulate_pit_rejoin_and_traffic(
         else:
             scn_age = 1.0 + float(lap - pit_lap)  # resets at what-if pit
 
-        # --- Controlled tyre-age delta adjustment (bounded) ---
-        # If we pit earlier than reality, scn_age is LOWER => we should be FASTER.
-        # If we pit later than reality (overcut), scn_age can be HIGHER => should be SLOWER.
-
+    
 
 
         if np.isfinite(real_age) and np.isfinite(scn_age):
             age_diff = real_age - scn_age  # + means scenario has fresher tyres
 
             # sensitivity: seconds per lap per lap-of-age difference
-            # start conservative; tune later
-            s_per_lap_age = 0.07  # try 0.05–0.10
+            s_per_lap_age = 0.07  
             tyre_adj = 0.0
-            #tyre_adj = np.clip(age_diff * s_per_lap_age, -1.5, +1.5)
-            #lt -= tyre_adj
         else:
             tyre_adj = 0.0
 
-        # debug stores
+        # Store diagnostic values
         push_boost_used[int(lap)] = float(push_applied)
         ref_used[int(lap)] = float(ref)
         delta_used[int(lap)] = float(d)
@@ -721,7 +659,6 @@ def simulate_pit_rejoin_and_traffic(
         pred_laptime.append(float(lt))
 
         if lap < pit_lap:
-            # Update q with the "pace context" for next lap
             real_row = drv.loc[drv["LapNumber"].astype(int) == int(lap)]
             if len(real_row):
                 r = real_row.iloc[0]
@@ -734,11 +671,9 @@ def simulate_pit_rejoin_and_traffic(
                 is_bad = True
 
             if lap < pit_lap:
-                # before what-if pit: use real pace context
                 if (not is_bad) and len(real_row):
                     q.append(float(r["LapTime_s"]))
             else:
-                # after what-if pit: use predicted pace context (bounded)
                 q.append(float(np.clip(lt, 70.0, 130.0)))
 
     pred_laptime = np.array(pred_laptime, dtype=float)
@@ -750,19 +685,16 @@ def simulate_pit_rejoin_and_traffic(
         print("len(pred_laptime):", len(pred_laptime))
         print("first/last sim_laps:", sim_laps[:3], sim_laps[-3:])
 
-    # overwrite driver lap times for simulated laps (for traffic comparisons)
+    # overwrites driver lap times for simulated laps 
     what_laptime.loc[sim_laps] = pred_laptime
 
     cum_start = int(min(sim_laps))
 
     if is_overcut:
-        # start before the real pit-loss lap so neutralisation affects cumtime
-        # (use rp_loss_lap if you have it; else rp)
         start_event = int(rp_loss_lap if rp_loss_lap is not None else rp)
         cum_start = max(1, start_event - 1)
 
     anchor_lap=cum_start - 1
-    #first_sim = int(min(sim_laps))
     anchor = 0.0 if anchor_lap <= 1 else float(base_driver_cum.loc[anchor_lap])
 
     cum = {}
@@ -771,20 +703,11 @@ def simulate_pit_rejoin_and_traffic(
         lt = what_laptime.get(int(lap), np.nan)
         if not np.isfinite(lt):
             continue
-        t += float(lt)  # REAL unless we overwrote it
+        t += float(lt)  
         cum[lap] = t
 
     what_driver_cum = base_driver_cum.copy()
     what_driver_cum.loc[cum_start:end_lap] = pd.Series(cum)
-
-    # Lock delta once order stabilises
-    #delta_at_lock = float(
-     #   what_driver_cum.loc[delta_lock_lap] - base_driver_cum.loc[delta_lock_lap]
-    #)
-
-    #what_driver_cum.loc[delta_lock_lap + 1 :] = (
-     #   base_driver_cum.loc[delta_lock_lap + 1 :] + delta_at_lock
-    #)
 
     what_cum = base_cum.copy()
     what_cum[driver_code] = what_driver_cum
@@ -796,7 +719,6 @@ def simulate_pit_rejoin_and_traffic(
         print("Pred laptime median/min/max:", float(np.median(pred_laptime)), float(np.min(pred_laptime)), float(np.max(pred_laptime)))
 
     score_lap = int(end_lap)
-    #final_lap = int(race["LapNumber"].max())
 
     base_finish = base_cum.loc[score_lap].dropna().sort_values()
     what_finish = what_cum.loc[score_lap].dropna().sort_values()
@@ -816,9 +738,7 @@ def simulate_pit_rejoin_and_traffic(
         what_finish.loc[driver_code] - base_finish.loc[driver_code]
     )
     
-    # ------------------------------------------------------------
-    # Traffic penalty loop (apply only in reported window)
-    # ------------------------------------------------------------
+    # Traffic penalty loop 
     penalties = {}
 
     for lap in range(pit_lap, end_lap + 1):
@@ -843,7 +763,7 @@ def simulate_pit_rejoin_and_traffic(
             ahead_lt = float(ahead_row["LapTime_s"].iloc[0]) if len(ahead_row) else np.nan
 
             if np.isfinite(my_lt) and np.isfinite(ahead_lt):
-                pace_adv = ahead_lt - my_lt  # + means I'm faster
+                pace_adv = ahead_lt - my_lt  
 
             if np.isfinite(gap) and gap <= traffic_gap_s and np.isfinite(pace_adv):
                 if pace_adv < pass_advantage_s:
@@ -857,14 +777,10 @@ def simulate_pit_rejoin_and_traffic(
 
         if penalty > 0:
             what_cum.loc[lap:, driver_code] = what_cum.loc[lap:, driver_code] + penalty
-            # keep lap-time series consistent with penalty
             what_laptime.loc[lap] = float(what_laptime.loc[lap]) + float(penalty)
 
 
-
-    # ------------------------------------------------------------
     # Build per-lap output
-    # ------------------------------------------------------------
     out_rows = []
     for lap in range(pit_lap, end_lap + 1):
         base_times = base_cum.loc[lap].dropna().sort_values()

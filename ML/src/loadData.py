@@ -4,20 +4,15 @@ import os
 import fastf1
 import pandas as pd
 
-# ⬅️ Import NEW multi-year race lists
 from .config import PROCESSED_DIR, TRAIN_RACES, TEST_RACES
 
-# Enable FastF1 cache in project root
 CACHE_DIR = Path(__file__).resolve().parents[1] / "fastf1_cache"
 os.makedirs(CACHE_DIR, exist_ok=True)
 fastf1.Cache.enable_cache(str(CACHE_DIR))
 
 
 def make_lap_dataset_for_session(year: int, event: str, session_type: str = "R") -> pd.DataFrame:
-    """
-    Build a per-lap, per-driver dataset for a single race session.
-    Includes basic strategy-relevant columns.
-    """
+ 
     print(f"Loading {year} {event} {session_type}...")
     session = fastf1.get_session(year, event, session_type)
     session.load()
@@ -63,7 +58,6 @@ def make_lap_dataset_for_session(year: int, event: str, session_type: str = "R")
     else:
         laps["TyreLife"] = laps["LapsSinceLastPit"]
 
-    # Keep important columns
     cols = [
         "Year", "Track", "RaceId",
         "Driver", "Team",
@@ -79,10 +73,7 @@ def make_lap_dataset_for_session(year: int, event: str, session_type: str = "R")
 
 
 def build_full_dataset(outfile: Path | None = None) -> pd.DataFrame:
-    """
-    Build a combined dataset for TRAIN_RACES + TEST_RACES across ALL YEARS
-    in config.py.
-    """
+ 
     races = TRAIN_RACES + TEST_RACES
     print(f"Building dataset for {len(races)} races...")
 
@@ -107,6 +98,5 @@ def build_full_dataset(outfile: Path | None = None) -> pd.DataFrame:
     return full
 
 
-# Allow terminal execution:  python -m src.loadData
 if __name__ == "__main__":
     build_full_dataset()

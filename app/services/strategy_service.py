@@ -1,15 +1,11 @@
 from __future__ import annotations
-
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, Tuple
-
+from typing import Any, Dict, List, Optional
 import numpy as np
 import pandas as pd
 from pathlib import Path
 import joblib
-# Your simulator import (based on your folder: Dissertation/ML/src/simulator.py)
 from ML.src.simulator import simulate_pit_rejoin_and_traffic
-from typing import Iterable
 import re
 from difflib import get_close_matches
 
@@ -26,14 +22,6 @@ class SimConfig:
 
 
 class StrategyService:
-    """
-    Thin service layer:
-      - Loads df_fe (feature-engineered laps), pace_model, features list.
-      - Provides: simulate(), recommend_pit_lap(), explain()
-
-    Keep this file boring + stable.
-    Put actual modelling logic in ML/src and only call it here.
-    """
 
     def __init__(
         self,
@@ -46,14 +34,12 @@ class StrategyService:
 
         self.config = config or SimConfig()
 
-        # Load resources if not provided
         self.df_fe = df_fe if df_fe is not None else self._load_df_fe()
         self.pace_model = pace_model if pace_model is not None else self._load_pace_model()
         self.features_pace = features_pace if features_pace is not None else self._load_features_pace()
 
         self.feature_rank = self._load_feature_rank_optional()
 
-        # Quick sanity checks (fail early)
         self._validate_assets()
 
         # Store last outputs for explanation
@@ -61,13 +47,9 @@ class StrategyService:
         self._last_reco: Optional[Dict[str, Any]] = None
         self._driver_alias_map = self._build_driver_alias_map()
 
-
-    # -----------------------------
     # Loaders
-    # -----------------------------
-
     def _load_df_fe(self) -> pd.DataFrame:
-        path =self.project_root / "ML" / "data" / "df_fe.parquet"
+        path = self.project_root / "ML" / "data" / "df_fe.parquet"
         if not path.exists():
             raise FileNotFoundError(f"df_fe not found at {path}")
         return pd.read_parquet(path)
@@ -83,17 +65,9 @@ class StrategyService:
         if not path.exists():
             raise FileNotFoundError(
                 f"features_pace.txt not found at {path}. "
-                "Create it from your notebook by saving your features_pace list."
             )
         feats = [ln.strip() for ln in path.read_text().splitlines() if ln.strip()]
         return feats
-
-    def _load_feature_rank_optional(self) -> Optional[pd.DataFrame]:
-        path = self.project_root / "ML" / "models" / "feature_rank_pace.csv"
-        if not path.exists():
-            return None
-        df = pd.read_csv(path)
-        return df
 
 
     def _norm(self, s: str) -> str:
@@ -103,26 +77,16 @@ class StrategyService:
         return s
 
     def _build_driver_alias_map(self) -> dict[str, str]:
-        """
-        Returns dict alias -> driver_code, e.g.:
-        'verstappen' -> 'VER'
-        'max verstappen' -> 'VER'
-        'ver' -> 'VER'
-        """
         mapping: dict[str, str] = {}
 
-        # Always allow the 3-letter codes present in df_fe
         codes = sorted(self.df_fe["Driver"].dropna().astype(str).unique())
         for c in codes:
             mapping[self._norm(c)] = c.upper()
 
-        # If you have a 'DriverName' or similar column, use it
         name_cols = [c for c in ["DriverName", "FullName", "GivenName", "FamilyName"] if c in self.df_fe.columns]
         if name_cols:
-            # Try to build a full name string if possible
             tmp = self.df_fe[["Driver"] + name_cols].dropna(subset=["Driver"]).copy()
             tmp["Driver"] = tmp["Driver"].astype(str).str.upper()
-            # add all observed name variants
             for _, r in tmp.iterrows():
                 code = r["Driver"]
                 for col in name_cols:
@@ -135,14 +99,13 @@ class StrategyService:
                         if len(parts) >= 2:
                             mapping[parts[-1]] = code
 
-                # if GivenName + FamilyName exist, add combined
                 if "GivenName" in tmp.columns and "FamilyName" in tmp.columns:
                     full = self._norm(f"{r['GivenName']} {r['FamilyName']}")
                     if full:
                         mapping[full] = code
                         mapping[full.split()[-1]] = code
 
-        # Manual overrides (works even if you don't have names in df_fe)
+        # common driver name aliases 
         manual = {
             "max verstappen": "VER",
             "verstappen": "VER",
@@ -170,10 +133,6 @@ class StrategyService:
         return mapping
 
     def resolve_driver(self, user_text: str, default: str | None = None) -> str | None:
-        """
-        Turn user input like 'verstappen' or 'max verstappen' or 'VER' into 'VER'.
-        Uses exact alias first, then fuzzy match.
-        """
         if not hasattr(self, "_driver_alias_map"):
             self._driver_alias_map = self._build_driver_alias_map()
 
@@ -186,7 +145,6 @@ class StrategyService:
             return self._driver_alias_map[t]
 
         # 2) if user typed a sentence, try to find any alias inside it
-        #    (longest alias wins)
         hits = []
         for alias, code in self._driver_alias_map.items():
             if alias and alias in t:
@@ -195,7 +153,7 @@ class StrategyService:
             hits.sort(reverse=True)
             return hits[0][2]
 
-        # 3) fuzzy match (surname typos etc.)
+        # 3) fuzzy match
         aliases = list(self._driver_alias_map.keys())
         close = get_close_matches(t, aliases, n=1, cutoff=0.85)
         if close:
@@ -204,12 +162,6 @@ class StrategyService:
         return default
 
     def local_feature_impact(self, row_feat: pd.Series, top_k: int = 6) -> List[Dict[str, float]]:
-        """
-        Local explanation: change one feature at a time to a baseline value and see
-        how prediction changes. Works with your Pipeline and categoricals.
-
-        Returns list of {feature, delta_pred_abs, baseline_value, actual_value}
-        """
         from ML.src.config import FEATURES_PACE
 
         # Build a 1-row dataframe
@@ -264,7 +216,6 @@ class StrategyService:
         return float(df["DeltaCum_s"].iloc[-1])
 
     def _load_feature_rank_optional(self) -> pd.DataFrame | None:
-    # Try a few candidate names to avoid brittleness
         candidates = [
             self.project_root / "ML" / "models" / "feature_rank_pace.csv",
             self.project_root / "ML" / "models" / "feature_rank.csv",
@@ -299,7 +250,6 @@ class StrategyService:
         }
 
     def _feature_context(self, race_id: str, driver: str, pit_lap: int) -> Dict[str, Any]:
-    # Decision moment is usually lap before pit
         L = int(pit_lap) - 1
         row = self.df_fe[(self.df_fe["RaceId"] == race_id) &
                         (self.df_fe["Driver"] == driver) &
@@ -309,25 +259,22 @@ class StrategyService:
 
         r = row.iloc[0]
 
-        # pick some readable “headline” values (tweak list to match your features)
         snapshot_keys = [
             "LapNumber", "Position", "LapsSinceLastPit", "TyreLife", "TyreWearFrac",
             "Stint", "StopsSoFar", "IsSC", "IsVSC", "lap_avg_3", "TrackStatus", "Compound"
         ]
         snap = {k: (None if k not in row.columns else r.get(k)) for k in snapshot_keys if k in row.columns}
 
-        # top ranked features (if you have rank file)
+        # top ranked features
         top_feats = []
         if self.feature_rank is not None and "feature" in self.feature_rank.columns:
             top = self.feature_rank.sort_values(self.feature_rank.columns[-1], ascending=False).head(6)
             top_feats = top["feature"].astype(str).tolist()
 
-        # include top feature values too
         top_vals = {}
         for f in top_feats:
             if f in row.columns:
                 v = r.get(f)
-                # make floats pretty
                 if isinstance(v, (float, np.floating)):
                     v = float(v)
                     v = round(v, 4)
@@ -341,7 +288,6 @@ class StrategyService:
         }
     
     def _fmt_driver(self, code: str) -> str:
-        # later you can map VER->Verstappen etc
         return code
 
     def _to_float(self, x, default=None):
@@ -408,12 +354,12 @@ class StrategyService:
         if sub.empty:
             return False
 
-        # Require a sensible number of laps to treat the race as usable
+        # Requires a sensible number of laps to treat the race as usable
         laps = sub["LapNumber"].dropna().astype(int).unique().tolist() if "LapNumber" in sub.columns else []
         if len(laps) < 10:
             return False
 
-        # Check whether the driver got near the end of the race
+        # Checks whether the driver got near the end of the race
         max_lap_driver = max(laps) if laps else 0
         race_sub = self.df_fe[self.df_fe["RaceId"] == race_id].copy()
         race_laps = race_sub["LapNumber"].dropna().astype(int)
@@ -476,7 +422,7 @@ class StrategyService:
         ctx = payload.get("feature_context", {}) or {}
         snap = (ctx.get("snapshot") or {})
 
-        # key snapshot values (only those a viewer understands)
+        # key snapshot values 
         wear = self._to_float(snap.get("TyreWearFrac"))
         tyre_age = self._to_float(snap.get("LapsSinceLastPit"))
         compound = snap.get("Compound")
@@ -494,13 +440,12 @@ class StrategyService:
                 else f"Pre-pit: compound={compound}, position={pos}."
             )
 
-        # translate “reasons” into English
+        # translate reasons into English
         if rejoin is not None:
             lines.append(f"Expected rejoin: around P{rejoin}.")
         if traffic is not None:
             lines.append(f"Traffic effect (next {payload['horizon_laps']} laps): ~{float(traffic):.2f}s time loss.")
 
-        # keep net delta but phrase it
         lines.append(f"Net effect vs baseline over horizon: {dlt:+.3f}s (negative = faster).")
 
         return " ".join(lines)
@@ -511,12 +456,7 @@ class StrategyService:
         *,
         top_k: int = 5,
     ) -> list[dict]:
-        """
-        Local 'importance' for the pace model around a single snapshot row.
-        Returns list of {feature, delta_pred, direction, note}.
-        """
 
-        import pandas as pd
         import numpy as np
 
         # Build a 1-row DataFrame in the exact feature order
@@ -529,7 +469,7 @@ class StrategyService:
         except Exception:
             return []
 
-        # Define nudges (keep this conservative)
+        # Define nudges
         nudges = {
             "LapsSinceLastPit": 2,
             "TyreLife": 2,
@@ -543,11 +483,11 @@ class StrategyService:
             "IsVSC": 1,
         }
 
-        # Categorical alternatives (only test if present)
+        # Categorical alternatives
         cat_alts = {
             "Compound": ["SOFT", "MEDIUM", "HARD"],
-            "TrackStatus": ["1", "4", "5", "6"],  # green, SC, VSC-ish patterns in your encoding
-            "Team": None,  # skip unless you want it
+            "TrackStatus": ["1", "4", "5", "6"],  
+            "Team": None,  
         }
 
         impacts = []
@@ -569,7 +509,6 @@ class StrategyService:
 
             # categorical swap
             if isinstance(v, str) and f in cat_alts and cat_alts[f]:
-                # pick the first alternative that differs
                 for alt in cat_alts[f]:
                     if alt != v:
                         X1 = X0.copy()
@@ -639,7 +578,6 @@ class StrategyService:
     def _features_to_natural_language(self, snapshot: dict, ranked: list[dict]) -> list[str]:
         lines = []
 
-        # convenience
         tyre_age = snapshot.get("LapsSinceLastPit")
         comp = snapshot.get("Compound")
         wear = snapshot.get("TyreWearFrac")
@@ -671,20 +609,18 @@ class StrategyService:
             elif f == "TrackStatus":
                 lines.append("Race conditions (track status) made timing more sensitive than usual.")
 
-            # fallback (don’t spam)
+            # fallback
             else:
-                # simple generic line
                 direction = "slower" if d > 0 else "faster"
                 lines.append(f"{f} was a key driver in the model (shifted predicted pace {direction}).")
 
-        # de-duplicate while preserving order
         seen = set()
         out = []
         for l in lines:
             if l not in seen:
                 out.append(l)
                 seen.add(l)
-        return out[:3]  # keep it short for viewers
+        return out[:3] 
     
     def _undercut_overcut_signal(self, sims: list[dict], pit_lap: int, eval_after: int = 3) -> dict:
         eval_lap = pit_lap + eval_after
@@ -708,7 +644,6 @@ class StrategyService:
 
         out = {"eval_lap": eval_lap, "actual": a, "earlier": e, "later": l}
 
-        # decide label
         label = None
         if e is not None and l is not None:
             if e < a and e <= l:
@@ -749,51 +684,6 @@ class StrategyService:
 
         return float(np.median(losses)) if losses else 22.0
     
-    def check_race_integrity(self, race_id: str) -> Dict[str, Any]:
-        race = self.df_fe[self.df_fe["RaceId"] == race_id].copy()
-        if race.empty:
-            return {"ok": False, "error": "race not found"}
-
-        race["LapNumber"] = race["LapNumber"].astype(int)
-
-        drivers = sorted(race["Driver"].unique().tolist())
-        max_lap = int(race["LapNumber"].max())
-        min_lap = int(race["LapNumber"].min())
-
-        issues = {}
-        for d in drivers:
-            sub = race[race["Driver"] == d]
-            laps = sorted(sub["LapNumber"].unique().tolist())
-            if not laps:
-                issues[d] = {"type": "no_laps"}
-                continue
-
-            # missing lap coverage
-            full = set(range(min(laps), max(laps) + 1))
-            missing = sorted(full - set(laps))
-
-            # NaN LapTime rows (these break cumtime)
-            nan_lt = int(sub["LapTime_s"].isna().sum()) if "LapTime_s" in sub.columns else None
-
-            # record only if problematic
-            if missing or (nan_lt and nan_lt > 0):
-                issues[d] = {
-                    "missing_laps_count": len(missing),
-                    "missing_laps_sample": missing[:10],
-                    "nan_laptime_rows": nan_lt,
-                    "min_lap": min(laps),
-                    "max_lap": max(laps),
-                }
-
-        return {
-            "ok": True,
-            "race_id": race_id,
-            "drivers": drivers,
-            "min_lap": min_lap,
-            "max_lap": max_lap,
-            "issues": issues,
-            "issues_count": len(issues),
-        }
     
     def check_race_integrity(self, race_id: str) -> Dict[str, Any]:
         race = self.df_fe[self.df_fe["RaceId"] == race_id].copy()
@@ -818,10 +708,9 @@ class StrategyService:
             full = set(range(min(laps), max(laps) + 1))
             missing = sorted(full - set(laps))
 
-            # NaN LapTime rows (these break cumtime)
+            # NaN LapTime rows
             nan_lt = int(sub["LapTime_s"].isna().sum()) if "LapTime_s" in sub.columns else None
 
-            # record only if problematic
             if missing or (nan_lt and nan_lt > 0):
                 issues[d] = {
                     "missing_laps_count": len(missing),
@@ -841,9 +730,7 @@ class StrategyService:
             "issues_count": len(issues),
         }
 
-    # -----------------------------
     # Public API
-    # -----------------------------
     def simulate(
         self,
         race_id: str,
@@ -896,14 +783,15 @@ class StrategyService:
             "delta_end_s": delta_end,
             "base_pos_end": base_pos_end,
             "whatif_pos_end": what_pos_end,
-            "df": out_df,  # keep full table for UI later
+            "real_pit_reference_lap": int(real_pit_reference_lap) if real_pit_reference_lap is not None else None,
+            "df": out_df,  
             "summary": summary,
         }
         
         payload["reasons_sim"] = self._sim_reasons(payload)
         payload["feature_context"] = self._feature_context(race_id, driver, pit_lap)
         payload["quality"] = quality
-        reasons = payload["reasons_sim"] or {}   # wherever you store it
+        reasons = payload["reasons_sim"] or {}  
         viewer_lines = [
             f"What-if: {driver} pits on lap {pit_lap} in {race_id}.",
             f"Time impact over next {horizon} laps: {delta_end:+.3f}s.",
@@ -967,8 +855,6 @@ class StrategyService:
 
         self._last_sim = payload
         return payload
-    
-    from typing import List, Dict, Any, Tuple
 
     def get_real_pit_laps(self, race_id: str, driver: str, debug: bool = False):
         sub = self.df_fe[(self.df_fe["RaceId"] == race_id) & (self.df_fe["Driver"] == driver)].copy()
@@ -984,21 +870,21 @@ class StrategyService:
         if not debug:
             return pits
 
-        # ---- diagnostics ----
+        # Diagnostics
         laps = sorted(set(sub["LapNumber"].astype(int).tolist()))
         missing_laps = []
         if laps:
             full = set(range(min(laps), max(laps) + 1))
             missing_laps = sorted(full - set(laps))
 
-        # detect pitloss offset (pit lap vs outlap) for FIRST pit only
+        # detect pitloss offset 
         pitloss_offset = None
         if pits:
             p = pits[0]
             lt = sub.set_index(sub["LapNumber"].astype(int))["LapTime_s"].astype(float)
             lt_p = float(lt.get(p, float("nan")))
             lt_p1 = float(lt.get(p + 1, float("nan")))
-            # heuristic: if next lap is much slower, treat that as "loss lap"
+            # if next lap is much slower, treat that as "loss lap"
             if lt_p1 == lt_p1 and lt_p == lt_p and (lt_p1 > lt_p + 8.0):
                 pitloss_offset = 1
             else:
@@ -1024,7 +910,6 @@ class StrategyService:
         if sub.empty:
             return {}
 
-        # If IsSC/IsVSC exist
         out = {}
         if "IsSC" in sub.columns:
             out["sc_any"] = bool(int(sub["IsSC"].max()) == 1)
@@ -1040,7 +925,7 @@ class StrategyService:
         horizon_laps: Optional[int] = None,
         window: int = 2,
         *,
-        prefer: str = "viewer",   # "viewer" | "detail"
+        prefer: str = "viewer",   
     ) -> Dict[str, Any]:
         
         if not self._has_enough_driver_data(race_id, driver):
@@ -1050,7 +935,6 @@ class StrategyService:
         if not pits:
             return {"summary": f"No recorded pit laps found for {driver} in {race_id}."}
 
-        # If user didn't specify, caller will handle disambiguation.
         if pit_lap is None:
             pit_lap = pits[0]
 
@@ -1076,7 +960,6 @@ class StrategyService:
         ]
 
         sc = self._sc_context(race_id, pit_lap, w=2)        
-        # Score each sim at the SAME lap number for fair comparison
         for s in sims:
             s["delta_end_fixed_s"] = float(self._delta_at_lap(s, end_lap_fixed))
 
@@ -1098,7 +981,7 @@ class StrategyService:
         diff_vs_best = float(actual["delta_vs_actual_s"]) - float(best_vs_actual["delta_vs_actual_s"])
         uo = self._undercut_overcut_signal(sims, pit_lap, eval_after=3)
 
-        # Snapshot just before the pit (context)
+        # Snapshot just before the pit
         snap_lap = max(1, pit_lap - 1)
         uo_lines = self._uo_lines(race_id, driver, pit_lap, k=3)
         stop_ctx = self._stop_context_type(race_id, driver, pit_lap)
@@ -1135,8 +1018,7 @@ class StrategyService:
         if earlier_better > 0 and later_better > 0:
             pattern_text = "The stop window looks finely balanced, with both slightly earlier and slightly later options showing some upside."
 
-        # Reasons from simulator (depends on what your simulate() returns)
-        # (your output shows "reasons_sim", not "reasons", so handle both)
+        # Reasons from simulator
         avg_pit_loss = self._estimate_track_pit_loss(race_id)
         actual_reasons = actual.get("reasons_sim") or actual.get("reasons") or {}
         best_reasons = best.get("reasons_sim") or best.get("reasons") or {}
@@ -1159,10 +1041,7 @@ class StrategyService:
         ranked = self._local_sensitivity_rank(snapshot, top_k=5)
         nl_reasons = self._features_to_natural_language(snapshot, ranked)
 
-
-        # --------------------------
-        # VIEWER SUMMARY (short)
-        # --------------------------
+        # VIEWER SUMMARY 
         viewer_lines = [
             f"[{driver} pitted on lap {pit_lap} in {race_id}.",
         ]
@@ -1293,9 +1172,7 @@ class StrategyService:
         summary_viewer = "\n".join(viewer_lines)
 
 
-        # --------------------------
-        # DETAIL SUMMARY (long)
-        # --------------------------
+        # Detail summary
         detail_lines = [
             f"Real pit explanation: [{race_id}] {driver} pitted on lap {pit_lap}.",
             f"- Compared laps: {candidates[0]} to {candidates[-1]} (a ±{window} lap window).",
@@ -1316,7 +1193,6 @@ class StrategyService:
 
         summary_detail = "\n".join(detail_lines)
 
-        # Choose default summary
         summary = summary_viewer if prefer == "viewer" else summary_detail
 
         return {
@@ -1347,7 +1223,7 @@ class StrategyService:
             "summary_short": summary_short,
             "summary_viewer": summary_viewer,
             "summary_detail": summary_detail,
-            "summary": summary,  # ✅ NOW defaults to viewer-friendly
+            "summary": summary,  
         }
 
     def _reasons_to_viewer_text(self, reasons: Dict[str, Any]) -> str:
@@ -1384,10 +1260,6 @@ class StrategyService:
         if not self._has_enough_driver_data(race_id, driver):
             raise ValueError(f"{driver} did not finish the race, or there is not enough usable data for this race.")
 
-        """
-        Basic recommendation: simulate each candidate lap and pick the best (lowest delta_end).
-        You can later swap "best" objective to "best position" or "expected finish time" etc.
-        """
         sims = []
         for L in candidate_laps:
             if L < current_lap:
@@ -1397,7 +1269,6 @@ class StrategyService:
         if not sims:
             return {"summary": "No valid candidate laps to evaluate.", "summary_viewer": "No valid candidate laps to evaluate."}
 
-        # Choose best by minimum delta_end_s (most negative = fastest vs base)
         sims_sorted = sorted(sims, key=lambda x: x["delta_end_s"])
         best = sims_sorted[0]
     
@@ -1482,7 +1353,7 @@ class StrategyService:
                 )
 
         viewer_lines = [
-            f"Recommended pit lap: {best['pit_lap']} for {driver} in {race_id}).",
+            f"Recommended pit lap: {best['pit_lap']} for {driver} in {race_id}.",
             f"- Estimated time impact over the comparison window: {best['delta_end_s']:+.3f}s.",
             f"- Expected position: P{best['whatif_pos_end']} (baseline P{best['base_pos_end']}).",
         ]
@@ -1501,7 +1372,6 @@ class StrategyService:
                     f"- Margin to next-best option: effectively equal to lap {second['pit_lap']}."
                 )
 
-        # optional: bring in “why” (traffic/rejoin) from best sim reasons
         reasons = best.get("reasons_sim") or {}
         if reasons:
             rejoin_pos = reasons.get("rejoin_pos")
@@ -1533,17 +1403,11 @@ class StrategyService:
         return payload
 
     def explain(self, last_result: Dict[str, Any]) -> str:
-        """
-        Explanation stub:
-        - For now: explain using the simulator's debug columns (traffic penalties, deltas).
-        - Next step: add feature importance / SHAP-like explanation for the predicted LapDelta.
-        """
         rtype = last_result.get("type")
         payload = last_result.get("payload", {})
 
         if rtype == "simulate":
             df = payload["df"]
-            # quick narrative from debug columns you already output
             total_pen = float(df["TrafficPenalty_s"].sum()) if "TrafficPenalty_s" in df.columns else 0.0
             delta_end = payload["delta_end_s"]
             pit_lap = payload["pit_lap"]

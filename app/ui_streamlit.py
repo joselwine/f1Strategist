@@ -26,9 +26,6 @@ def format_race_label(race_id: str) -> str:
 display_race_map = {format_race_label(r): r for r in available_races}
 display_races = sorted(display_race_map.keys(), reverse=True)
 
-import pandas as pd
-import streamlit as st
-
 def show_pit_debug(svc, race_id: str, driver: str, pit_lap: int):
     st.markdown("### Debug: pit-window data")
 
@@ -61,7 +58,7 @@ def show_pit_debug(svc, race_id: str, driver: str, pit_lap: int):
     window_df = sub[sub["LapNumber"].astype(int).between(int(pit_lap) - 3, int(pit_lap) + 4)][cols].copy()
     st.dataframe(window_df, use_container_width=True)
 
-    # missing / duplicate lap checks
+    # Check for missing or duplicated laps
     sub["LapNumber_i"] = sub["LapNumber"].astype(int)
     laps = sorted(sub["LapNumber_i"].tolist())
     if laps:
@@ -71,14 +68,13 @@ def show_pit_debug(svc, race_id: str, driver: str, pit_lap: int):
     else:
         missing, dupes = [], []
 
-    # quick pit-loss style diagnostic
     if pit_lap in sub["LapNumber_i"].values:
         around = sub[sub["LapNumber_i"].between(int(pit_lap)-2, int(pit_lap)+2)].copy()
 
 st.title("F1 Pit Strategy Assistant")
 st.caption("Explain real pit stops, run what-if simulations, and get pit recommendations.")
 
-# -------- Sidebar: Context --------
+# Sidebar: Context 
 with st.sidebar:
     st.header("Context")
     race_display = st.selectbox("Race", display_races)
@@ -103,7 +99,7 @@ with st.sidebar:
     st.caption("Tip: Adjust the window to compare more or less nearby options.")
     debug_mode = st.checkbox("Show debug pit-window data", value=False)
 
-# -------- Tabs --------
+# Tabs 
 tab1, tab2, tab3 = st.tabs(["Explain real pit", "What-if sim", "Recommend"])
 
 def show_quality_banner(payload: dict):
@@ -153,7 +149,7 @@ def plot_sim(df: pd.DataFrame):
         st.write("No graph data available.")
         return
 
-    # ----- Time difference chart -----
+    # Time difference chart 
     st.subheader("Projected Time Difference Relative to Baseline Strategy")
 
     time_df = df.copy()
@@ -188,7 +184,7 @@ def plot_sim(df: pd.DataFrame):
     st.plotly_chart(fig_time, use_container_width=True)
     st.caption("Negative values indicate time gained relative to the baseline strategy, while positive values indicate time lost.")
 
-    # ----- Position chart -----
+    # Position chart 
     st.subheader("Projected Race Position")
 
     pos_df = df.copy()
@@ -224,7 +220,7 @@ def plot_recommend_sim(df: pd.DataFrame):
         st.write("No graph data available.")
         return
 
-    # ----- Time difference chart -----
+    # Time difference chart 
     st.subheader("Projected Time Difference After Pitting")
 
     time_df = df.copy()
@@ -259,7 +255,7 @@ def plot_recommend_sim(df: pd.DataFrame):
     st.plotly_chart(fig_time, use_container_width=True)
     st.caption("Negative values indicate the projected strategy is gaining time, while positive values indicate time loss.")
 
-    # ----- Position chart -----
+    # Position chart 
     st.subheader("Projected Race Position After Pitting")
 
     pos_df = df.copy()
@@ -313,7 +309,6 @@ with tab2:
         best_pos = None
 
         if cf:
-            import pandas as pd
             cf_df = pd.DataFrame(cf)
             if len(cf_df):
                 best_row = cf_df.sort_values("delta_vs_actual_s").iloc[0]
@@ -421,7 +416,6 @@ with tab2:
         cf = out.get("counterfactuals")
         if cf:
             with st.expander("Nearby strategy comparison"):
-                import pandas as pd
 
                 cf_df = pd.DataFrame(cf).rename(columns={
                     "pit_lap": "Pit Lap",
@@ -560,7 +554,7 @@ with tab3:
 
 with tab1:
     st.subheader("Explain a real pit stop")
-    st.caption("This mode compares the actual pit stop against nearby alternatvies to help explain whether the timing was strong or pitting on a nearby lap may have been more effective.")
+    st.caption("This mode compares the actual pit stop against nearby alternatives to assess whether the timing was strong or whether on a nearby lap may have been more effective.")
     if st.button("Explain pit", type="primary", use_container_width=True):
         try:
             out = svc.explain_real_pit(
@@ -584,7 +578,6 @@ with tab1:
             best_pos = None
 
             if cf:
-                import pandas as pd
                 cf_df = pd.DataFrame(cf)
                 if len(cf_df):
                     best_row = cf_df.sort_values("delta_vs_actual_s").iloc[0]
@@ -627,7 +620,6 @@ with tab1:
             with st.expander("Nearby strategy comparison"):
                 cf = out.get("counterfactuals")
                 if cf:
-                    import pandas as pd
 
                     cf_df = pd.DataFrame(cf).rename(columns={
                         "pit_lap": "Pit Lap",

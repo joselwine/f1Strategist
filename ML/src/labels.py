@@ -1,14 +1,9 @@
 import pandas as pd
 
 def add_labels(df: pd.DataFrame, window: int = 3) -> pd.DataFrame:
-    """
-    Add strategy labels:
-      - pit_next_lap: 1 if is_pit_lap on next lap
-      - pit_within_<window>: 1 if pit occurs in next `window` laps
-    """
+
     df = df.sort_values(["RaceId", "Driver", "LapNumber"]).copy()
 
-    # Ensure we have is_pit_lap (1/0)
     if "is_pit_lap" not in df.columns:
         raise ValueError("Expected 'is_pit_lap' column in df")
 

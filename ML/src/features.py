@@ -1,21 +1,12 @@
 import pandas as pd
-import numpy as np
 
 
 def add_features(df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Add strategy-relevant features:
-      - tyre age / wear
-      - stint progression
-      - race phase
-      - contextual pit activity
-      - position changes
-      - SC/VSC flags
-    """
+
     df_fe = df.copy()
     df_fe = df_fe.sort_values(["RaceId", "Driver", "LapNumber"])
 
-    # Tyre age (already have TyreLife, but make a cleaner alias)
+    # Tyre age 
     df_fe["TyreAge"] = df_fe["TyreLife"].fillna(df_fe["LapsSinceLastPit"])
 
     # Stint position
@@ -38,9 +29,8 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
     df_fe["LapsRemaining"] = race_max_lap - df_fe["LapNumber"] + 1
     df_fe["RaceFracRemaining"] = df_fe["LapsRemaining"] / race_max_lap
 
-    # Simple lagged + rolling style degradation (example: rolling laps-since-pit)
     g_drv = df_fe.groupby(["RaceId", "Driver"])
-    # Rolling average of lap time (seconds) for pace baseline
+    # Rolling average of lap time for pace baseline
     df_fe["lap_avg_3"] = (
         g_drv["LapTime_s"]
         .rolling(3, min_periods=1)
@@ -51,7 +41,7 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
 
     df_fe["IsOldTyre"] = (df_fe["TyreAge"] > 12).astype(int)
 
-    # Context: how many cars pitted recently
+    # How many cars pitted recently
     pits_per_lap = (
         df_fe.groupby(["RaceId", "LapNumber"])["is_pit_lap"]
         .sum()
@@ -77,7 +67,7 @@ def add_features(df: pd.DataFrame) -> pd.DataFrame:
     df_fe["PosChange1"] = (df_fe["Pos_prev"] - df_fe["Position"]).fillna(0)
     df_fe["PosChange3"] = g_drv["Position"].diff(3).fillna(0)
 
-    # SC / VSC flags (very rough)
+    # SC and VSC flags 
     df_fe["TrackStatus"] = df_fe["TrackStatus"].astype(str)
     df_fe["IsSC"] = df_fe["TrackStatus"].str.contains("4|5").astype(int)
     df_fe["IsVSC"] = df_fe["TrackStatus"].str.contains("6").astype(int)

@@ -17,19 +17,16 @@ def main() -> None:
     df = pd.read_parquet(df_path)
     model = joblib.load(model_path)
 
-    # IMPORTANT: use the exact FEATURES_PACE you just added to ML/src/config.py
     from ML.src.config import FEATURES_PACE
 
     target = "LapDelta"
     df = df.dropna(subset=[target]).copy()
 
-    # Sample to keep it fast (tune up/down)
     df_s = df.sample(n=min(8000, len(df)), random_state=42)
 
     X = df_s[FEATURES_PACE]
     y = df_s[target]
 
-    # permutation importance works directly on the PIPELINE (great!)
     r = permutation_importance(
         model, X, y,
         n_repeats=5,
